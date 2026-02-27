@@ -12,8 +12,8 @@
 combo_chain={a_atk1,a_xslice}
 
 -- anim speeds (frames per anim frame)
--- order: idle,run,jump,fall,hit,land,atk1,xslice,sweep,death
-aspd=split"6,5,5,5,5,2,6,6,4,6"
+-- order: idle,run,jump,fall,hit,land,atk1,xslice,sweep,death,door,sw_start,sw_idle,sw_down
+aspd=split"6,5,5,5,5,2,6,6,4,6,6,6,6,8"
 
 -- physics
 grav,max_fall,jump_spd,run_spd,friction=0.15,3,-3.5,1.5,0.8
@@ -47,6 +47,10 @@ atk_push=split"0,0,0,0,0,0,4,6,0,0"
 -- particles & collectibles
 parts={} -- particle pool
 gems=0   -- collected count
+
+-- entity system
+ents={}
+ent_grp={}
 
 -- -- decoders --
 
@@ -362,7 +366,22 @@ function load_tiles()
   end
  end
 
- -- 3. write main tiles (1..nst) to spritesheet
+ -- 3. decode entities
+ local ne=peek(p)
+ p+=1
+ for i=1,ne do
+  local e={type=peek(p),tx=peek(p+1),
+   ty=peek(p+2),group=peek(p+3),
+   state=0,anim_t=0}
+  add(ents,e)
+  p+=4
+  if not ent_grp[e.group] then
+   ent_grp[e.group]={}
+  end
+  add(ent_grp[e.group],#ents)
+ end
+
+ -- 4. write main tiles (1..nst) to spritesheet
  local nst=lvl_nst
  for t=0,nst-1 do
   local pix=tile_pix[t]
@@ -415,7 +434,10 @@ end
 
 function tile_solid(tx,ty)
  -- flag bit 0 = solid
- return band(tile_flag(tx,ty),1)>0
+ if band(tile_flag(tx,ty),1)>0 then
+  return true
+ end
+ return ent_solid(tx,ty)
 end
 
 function tile_platform(tx,ty)
@@ -613,7 +635,9 @@ function _init()
  palt(trans,true)
  cache_anims()
  -- load tiles into sprite sheet (overwrites __gfx__)
+ -- entity tiles in __gfx__ survive since they're after map tiles
  load_tiles()
+ init_ents()
  -- set player to spawn
  px=spn_x*16+8
  py=spn_y*16
@@ -798,6 +822,166 @@ function update_parts()
    gems+=1
    del(parts,p)
   end
+ end
+end
+
+-- -- entity system --
+
+function init_ents()
+ for e in all(ents) do
+  if e.type==1 then
+   -- door: closed = frame 15
+   e.anim=a_door e.frame=15
+   e.state=0
+  elseif e.type==2 then
+   -- switch: off = idle frame 1
+   e.anim=a_sid e.frame=1
+   e.state=0 e.cooldown=0
+  end
+ end
+end
+
+function ent_solid(tx,ty)
+ for e in all(ents) do
+  if e.type==1
+   and (e.state==0 or e.state==3)
+  then
+   if tx>=e.tx and tx<e.tx+3
+    and ty>=e.ty and ty<e.ty+3 then
+    return true
+   end
+  end
+ end
+ return false
+end
+
+function toggle_switch(e)
+ if e.cooldown>0 then return end
+ e.cooldown=30
+ if e.state==0 then
+  -- off -> activating
+  e.state=1 e.anim=a_sst e.frame=1
+ elseif e.state==2 then
+  -- on -> deactivating
+  e.state=3 e.anim=a_sdn e.frame=1
+ end
+ -- trigger linked doors
+ local grp=ent_grp[e.group]
+ if grp then
+  for _,ei in ipairs(grp) do
+   local de=ents[ei]
+   if de.type==1 then
+    if e.state==1 then
+     de.state=1 de.frame=1
+    elseif e.state==3 then
+     de.state=3 de.frame=14
+    end
+   end
+  end
+ end
+end
+
+function check_atk_ents()
+ local ax0,ax1
+ if facing>0 then
+  ax0=px+cb_x1 ax1=ax0+14
+ else
+  ax1=px+cb_x0 ax0=ax1-14
+ end
+ local ay0,ay1=py+cb_y0,py+cb_y1
+ for e in all(ents) do
+  if e.type==2 then
+   local sx=e.tx*16
+   local sy=e.ty*16
+   if ax1>sx and ax0<sx+16
+    and ay1>sy and ay0<sy+16 then
+    toggle_switch(e)
+   end
+  end
+ end
+end
+
+function update_ents()
+ for e in all(ents) do
+  -- switch cooldown
+  if e.type==2 and e.cooldown>0 then
+   e.cooldown-=1
+  end
+  -- switch animation
+  if e.type==2 then
+   if e.state==1 then
+    -- activating: play sw_start
+    e.anim_t=(e.anim_t or 0)+1
+    if e.anim_t>=aspd[a_sst] then
+     e.anim_t=0
+     if e.frame<acache[a_sst].ai.nf then
+      e.frame+=1
+     else
+      e.state=2 e.anim=a_sid e.frame=1
+     end
+    end
+   elseif e.state==3 then
+    -- deactivating: play sw_down
+    e.anim_t=(e.anim_t or 0)+1
+    if e.anim_t>=aspd[a_sdn] then
+     e.anim_t=0
+     if e.frame<acache[a_sdn].ai.nf then
+      e.frame+=1
+     else
+      e.state=0 e.anim=a_sid e.frame=1
+     end
+    end
+   end
+  end
+  -- door animation
+  if e.type==1 then
+   if e.state==1 then
+    -- opening: play frames 1->14
+    e.anim_t=(e.anim_t or 0)+1
+    if e.anim_t>=aspd[a_door] then
+     e.anim_t=0
+     if e.frame<14 then
+      e.frame+=1
+     else
+      e.state=2 e.frame=14
+     end
+    end
+   elseif e.state==3 then
+    -- closing: play frames 14->1
+    e.anim_t=(e.anim_t or 0)+1
+    if e.anim_t>=aspd[a_door] then
+     e.anim_t=0
+     if e.frame>1 then
+      e.frame-=1
+     else
+      e.state=0 e.frame=15
+     end
+    end
+   end
+  end
+ end
+end
+
+function draw_ent(a,f,sx,sy)
+ local buf,bx,by,bw,bh=get_frame(a,f)
+ if bw==0 then return end
+ local idx=1
+ for y=0,bh-1 do
+  for x=0,bw-1 do
+   local col=buf[idx]
+   if col~=trans then
+    pset(sx+bx+x,sy+by+y,col)
+   end
+   idx+=1
+  end
+ end
+end
+
+function draw_ents()
+ for e in all(ents) do
+  local sx=e.tx*16-cam_x
+  local sy=e.ty*16-cam_y
+  draw_ent(e.anim,e.frame,sx,sy)
  end
 end
 
@@ -994,12 +1178,14 @@ function _update60()
  local max_x=lvl_w*16-1-cb_x1
  px=mid(min_x,px,max_x)
 
- -- attack hitbox vs destructibles
+ -- attack hitbox vs destructibles + entities
  if state=="attack" or state=="sweep" then
   check_atk_tiles()
+  check_atk_ents()
  end
 
- -- update particles
+ -- update entities & particles
+ update_ents()
  update_parts()
 
  -- update camera
@@ -1015,6 +1201,9 @@ function _draw()
  -- bg + main layers
  draw_bg_layer()
  draw_main_layer()
+
+ -- draw entities
+ draw_ents()
 
  -- draw player anchored to body center
  local ax=anc[cur_anim][cur_frame]
