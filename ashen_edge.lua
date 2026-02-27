@@ -44,6 +44,10 @@ atk_anchor0,atk_px0,air_atk=0,0,false
 -- order: idle,run,jump,fall,hit,land,atk1,xslice,sweep,death
 atk_push=split"0,0,0,0,0,0,4,6,0,0"
 
+-- particles & collectibles
+parts={} -- particle pool
+gems=0   -- collected count
+
 -- -- decoders --
 
 function pk2(a)
@@ -712,6 +716,91 @@ function air_control(lr)
  end
 end
 
+function spawn_parts(wx,wy)
+ -- spawn 3 bouncing red balls at world pos
+ for i=1,3 do
+  add(parts,{
+   x=wx,y=wy,
+   vx=rnd(3)-1.5,
+   vy=-rnd(2)-1,
+   landed=false,
+   age=0
+  })
+ end
+end
+
+function check_atk_tiles()
+ -- attack hitbox: extends in facing dir
+ local ax0,ax1
+ if facing>0 then
+  ax0=px+cb_x1
+  ax1=ax0+14
+ else
+  ax1=px+cb_x0
+  ax0=ax1-14
+ end
+ local ay0=py+cb_y0
+ local ay1=py+cb_y1
+ local tx0=flr(ax0/16)
+ local ty0=flr(ay0/16)
+ local tx1=flr((ax1-0.01)/16)
+ local ty1=flr((ay1-0.01)/16)
+ for ty=ty0,ty1 do
+  for tx=tx0,tx1 do
+   if band(tile_flag(tx,ty),4)>0 then
+    -- destroy tile, spawn particles
+    local c=mdat[2][ty*lvl_w+tx+1]
+    mdat[2][ty*lvl_w+tx+1]=0
+    spawn_parts(tx*16+8,ty*16+8)
+   end
+  end
+ end
+end
+
+function update_parts()
+ for p in all(parts) do
+  if not p.landed then
+   p.vy+=0.15
+   -- move x, check walls
+   p.x+=p.vx
+   local tx=flr(p.x/16)
+   local ty=flr(p.y/16)
+   if tile_solid(tx,ty) then
+    p.x-=p.vx
+    p.vx*=-0.3
+   end
+   -- move y, check floor/ceiling
+   p.y+=p.vy
+   tx=flr(p.x/16)
+   ty=flr(p.y/16)
+   if tile_solid(tx,ty) then
+    if p.vy>0 then
+     -- hit floor: snap to top
+     p.y=ty*16-1
+    else
+     -- hit ceiling: snap to bottom
+     p.y=(ty+1)*16+1
+    end
+    if abs(p.vy)<0.8 then
+     p.landed=true
+     p.vx,p.vy=0,0
+    else
+     p.vy*=-0.4
+     p.vx*=0.7
+    end
+   end
+  end
+  p.age+=1
+  -- collect if player overlaps (after 15 frames)
+  local dx=p.x-px
+  local dy=p.y-(py+11)
+  if p.age>15 and abs(dx)<10 and abs(dy)<10 then
+   gems+=1
+   del(parts,p)
+  end
+ end
+end
+
 function _update60()
  local lr=0
  if btn(0) then lr=-1 end
@@ -905,6 +994,14 @@ function _update60()
  local max_x=lvl_w*16-1-cb_x1
  px=mid(min_x,px,max_x)
 
+ -- attack hitbox vs destructibles
+ if state=="attack" or state=="sweep" then
+  check_atk_tiles()
+ end
+
+ -- update particles
+ update_parts()
+
  -- update camera
  update_camera()
 
@@ -931,13 +1028,12 @@ function _draw()
  end
  draw_char(cur_anim,cur_frame,dx-cam_x,py-cam_y,flip)
 
- -- hud
- print(state,1,1,7)
- if state=="attack" then
-  print("combo:"..combo_idx.."/"
-   ..#combo_chain,1,8,7)
+ -- draw particles
+ for p in all(parts) do
+  circfill(p.x-cam_x,p.y-cam_y,2,8)
+  circfill(p.x-cam_x-1,p.y-cam_y-1,1,14)
  end
- if combo_queued then
-  print("queued",1,15,11)
- end
+
+ -- hud: gem counter
+ print(gems,2,2,8)
 end
