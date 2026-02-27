@@ -108,6 +108,7 @@ body { background: #1d2b53; color: #fff; font-family: monospace; display: flex; 
     <span id="st-size">-</span>
     <span id="st-xform">Xform: none</span>
     <span id="st-mode">Mode: single</span>
+    <span id="st-mem" style="color:#7e7">-</span>
   </div>
 </div>
 
@@ -465,7 +466,14 @@ function updatePaletteFlags() {
 const canvas = document.getElementById("map-canvas");
 const ctx = canvas.getContext("2d");
 
+let _memTimer = null;
+function scheduleMemEstimate() {
+  if (_memTimer) clearTimeout(_memTimer);
+  _memTimer = setTimeout(updateMemEstimate, 300);
+}
+
 function render() {
+  scheduleMemEstimate();
   const ts = 16 * zoom;
   canvas.width = mapW * ts; canvas.height = mapH * ts;
   canvas.style.left = panX + "px"; canvas.style.top = panY + "px";
@@ -868,6 +876,108 @@ function compressMap() {
     }
   }
   return bytes;
+}
+
+// Estimate __map__ memory usage (matches build.py format)
+function estimateMapMemory() {
+  const TRANS = 14;
+  // Step 1: collect unique (tile, xform) combos
+  const combos = new Set();
+  for (let y=0; y<mapH; y++) {
+    for (let x=0; x<mapW; x++) {
+      const ti = map[y][x];
+      if (ti === 255) continue;
+      const xf = mapXform[y] ? mapXform[y][x] : 0;
+      combos.add(ti + ":" + xf);
+    }
+  }
+
+  // Step 2: for each combo, get remapped pixels, apply xform, RLE encode
+  function getTilePixels(ti) {
+    const lums = tileLum[ti];
+    if (!lums) return null;
+    const pix = [];
+    for (let p = 0; p < 256; p++) {
+      if (lums[p].a < 128) { pix.push(TRANS); continue; }
+      const band = lumToBand(lums[p].lum);
+      pix.push(bandColors[band]);
+    }
+    return pix;
+  }
+
+  function applyXform(pix, xf) {
+    const rot = xf & 3, hf = !!(xf & 4), vf = !!(xf & 8);
+    let grid = [];
+    for (let y=0; y<16; y++) grid.push(pix.slice(y*16, (y+1)*16));
+    for (let r=0; r<rot; r++) {
+      const ng = [];
+      for (let x=0; x<16; x++) {
+        const row = [];
+        for (let y=15; y>=0; y--) row.push(grid[y][x]);
+        ng.push(row);
+      }
+      grid = ng;
+    }
+    if (vf) grid.reverse();
+    if (hf) grid = grid.map(r => r.slice().reverse());
+    return grid.flat();
+  }
+
+  function nibbleRLE(pix) {
+    let size = 0, cur = pix[0], cnt = 1;
+    for (let i=1; i<pix.length; i++) {
+      if (pix[i] === cur && cnt < 16) { cnt++; }
+      else { size += Math.ceil(cnt/16); cur = pix[i]; cnt = 1; }
+    }
+    size += Math.ceil(cnt/16);
+    return size;
+  }
+
+  // Dedup transformed tiles by pixel content
+  const seenHashes = new Map();
+  let numRT = 0;
+  let tileRLETotal = 0;
+  for (const key of combos) {
+    const [tiStr, xfStr] = key.split(":");
+    const ti = parseInt(tiStr), xf = parseInt(xfStr);
+    const base = getTilePixels(ti);
+    if (!base) continue;
+    const transformed = applyXform(base, xf);
+    const hash = transformed.join(",");
+    if (seenHashes.has(hash)) continue;
+    seenHashes.set(hash, numRT);
+    numRT++;
+    tileRLETotal += nibbleRLE(transformed);
+  }
+
+  // Step 3: map RLE (2-byte pairs, same as build)
+  let mapRLESize = 0;
+  for (let y=0; y<mapH; y++) {
+    let x = 0;
+    while (x < mapW) {
+      let run = 1;
+      while (x+run < mapW && run < 255) {
+        if (map[y][x+run] !== map[y][x]) break;
+        if ((mapXform[y]?mapXform[y][x+run]:0) !== (mapXform[y]?mapXform[y][x]:0)) break;
+        run++;
+      }
+      mapRLESize += 2;
+      x += run;
+    }
+  }
+
+  const header = 11;
+  const tileIndex = numRT * 2;
+  const total = header + tileIndex + tileRLETotal + mapRLESize;
+  return { total, numRT, tileRLETotal, tileIndex, mapRLESize, header };
+}
+
+function updateMemEstimate() {
+  const m = estimateMapMemory();
+  const pct = (m.total / 4096 * 100).toFixed(0);
+  const el = document.getElementById("st-mem");
+  el.textContent = `__map__: ${m.total}/4096 (${pct}%) [${m.numRT} tiles]`;
+  el.style.color = m.total > 4096 ? "#f44" : m.total > 3072 ? "#fa0" : "#7e7";
 }
 
 function decompressMap(bytes) {

@@ -25,7 +25,6 @@ aspd[a_sweep]=4
 aspd[a_death]=6
 
 -- physics
-ground_y=100
 grav=0.3
 jump_spd=-5
 run_spd=1.5
@@ -39,10 +38,9 @@ cb_x0=-3  -- left edge offset from px
 cb_x1=3   -- right edge offset from px
 cb_y0=3   -- top edge offset from py (skip hair)
 cb_y1=19  -- bottom edge = py+cell_h
-debug_box=false
 
 -- player state
-px=64 py=ground_y
+px=64 py=0
 vx=0 vy=0
 facing=1
 grounded=true
@@ -50,7 +48,7 @@ grounded=true
 -- animation state
 state="idle"
 -- states: idle,run,jump,fall,land,
---  attack,sweep,interact
+--  attack,sweep
 cur_anim=a_idle
 cur_frame=1
 anim_timer=0
@@ -279,16 +277,6 @@ end
 
 -- -- tile/map system --
 
--- defaults (overridden by generated block when level data exists)
-if not map_base then map_base=0x2000 end
-if not lvl_w then lvl_w=8 end
-if not lvl_h then lvl_h=8 end
-if not lvl_nt then lvl_nt=0 end
-if not spn_x then spn_x=0 end
-if not spn_y then spn_y=0 end
-if not map_in_str then map_in_str=false end
-if not tflg then tflg={} end
-
 -- map buffer: mdat[y*lvl_w+x+1]=tile_id (0=empty, 1-N=runtime tile)
 mdat={}
 cam_x=0
@@ -299,72 +287,56 @@ function load_tiles()
   for i=1,lvl_w*lvl_h do mdat[i]=0 end
   return
  end
- -- read header from __map__ (0x2000)
+ -- header: 11 bytes at map_base
  local b=map_base
  local nt=peek(b)
  local mw=peek(b+1)+peek(b+2)*256
  local mh=peek(b+3)+peek(b+4)*256
  local sx=peek(b+5)+peek(b+6)*256
  local sy=peek(b+7)+peek(b+8)*256
- local tdsz=peek(b+9)+peek(b+10)*256
+ local tbsz=peek(b+9)+peek(b+10)*256
 
- -- poke tile pixel data into sprite sheet
- -- each tile = 128 bytes, laid out in 8-tile-wide grid
- -- tile N goes to sprite sheet position:
- --   col = N % 8, row = N \ 8
- --   pixel (col*16, row*16) = byte offset (row*16*64 + col*8)
- local tdata=b+11
+ -- tile index: nt*2 bytes (u16 offsets)
+ local tidx=b+11
+ -- tile blob starts after index
+ local tblob=tidx+nt*2
+
+ -- decode each tile's RLE pixels into
+ -- sprite sheet memory
  for t=0,nt-1 do
+  local off=peek(tidx+t*2)
+       +peek(tidx+t*2+1)*256
+  -- decode nibble RLE -> 256 pixels
+  local pix=decode_rle(tblob+off,256)
+  -- poke into sprite sheet as nibble pairs
   local tcol=t%8
   local trow=t\8
-  -- copy 16 rows of 8 bytes each into sprite sheet
   for py=0,15 do
-   local src=tdata+t*128+py*8
    local dst=(trow*16+py)*64+tcol*8
-   for i=0,7 do
-    poke(dst+i,peek(src+i))
+   for px=0,7 do
+    local i=py*16+px*2
+    local lo=pix[i+1]&0xf
+    local hi=pix[i+2]&0xf
+    poke(dst+px,lo|(hi<<4))
    end
   end
  end
 
- -- decompress map RLE
- local rle_off=tdata+tdsz
- local rle_src="mem" -- read from memory
- if map_in_str then
-  rle_src="str"
- end
+ -- map RLE starts after tile blob
+ local p=tblob+tbsz
 
  local mx,my=0,0
  mdat={}
  for i=1,mw*mh do mdat[i]=0 end
-
- if rle_src=="mem" then
-  local p=rle_off
-  while my<mh do
-   local cell=peek(p)
-   local run=peek(p+1)
-   p+=2
-   for i=1,run do
-    if my<mh then
-     mdat[my*mw+mx+1]=cell
-     mx+=1
-     if mx>=mw then mx=0 my+=1 end
-    end
-   end
-  end
- else
-  -- read from lua string
-  local p=1
-  while my<mh and p<#map_rle_str do
-   local cell=ord(map_rle_str,p)
-   local run=ord(map_rle_str,p+1)
-   p+=2
-   for i=1,run do
-    if my<mh then
-     mdat[my*mw+mx+1]=cell
-     mx+=1
-     if mx>=mw then mx=0 my+=1 end
-    end
+ while my<mh do
+  local cell=peek(p)
+  local run=peek(p+1)
+  p+=2
+  for i=1,run do
+   if my<mh then
+    mdat[my*mw+mx+1]=cell
+    mx+=1
+    if mx>=mw then mx=0 my+=1 end
    end
   end
  end
@@ -490,7 +462,22 @@ function get_visual_x()
  if state=="attack" or state=="sweep" then
   local ax=anc[cur_anim][cur_frame]
   local drift=ax-atk_anchor0
-  return px+drift*facing
+  local vx=px+drift*facing
+  -- clamp visual pos against walls
+  local bx0=vx+cb_x0
+  local by0=py+cb_y0
+  local bx1=vx+cb_x1
+  local by1=py+cb_y1
+  if box_hits_solid(bx0,by0,bx1,by1) then
+   if drift*facing>0 then
+    local tx1=flr((bx1-0.01)/16)
+    vx=tx1*16-cb_x1
+   else
+    local tx0=flr(bx0/16)
+    vx=(tx0+1)*16-cb_x0
+   end
+  end
+  return vx
  end
  return px
 end
@@ -515,12 +502,8 @@ function _init()
  -- load tiles into sprite sheet (overwrites __gfx__)
  load_tiles()
  -- set player to spawn
- if spn_x then
-  px=spn_x*16+8
-  py=spn_y*16
- end
- -- set ground_y to bottom of map for now
- ground_y=lvl_h*16
+ px=spn_x*16+8
+ py=spn_y*16
 end
 
 function do_jump()
@@ -562,12 +545,32 @@ function start_air_atk()
  buf_sweep=0
 end
 
+function try_move_x(dx)
+ -- move px by dx, stopping at walls
+ px+=dx
+ local bx0=px+cb_x0
+ local by0=py+cb_y0
+ local bx1=px+cb_x1
+ local by1=py+cb_y1
+ if box_hits_solid(bx0,by0,bx1,by1) then
+  if dx>0 then
+   local tx1=flr((bx1-0.01)/16)
+   px=tx1*16-cb_x1
+  elseif dx<0 then
+   local tx0=flr(bx0/16)
+   px=(tx0+1)*16-cb_x0
+  end
+ end
+end
+
 function end_attack()
  local drift=anc[cur_anim][cur_frame]
   -atk_anchor0
- px+=drift*facing
+ try_move_x(drift*facing)
  local push=atk_push[cur_anim] or 0
- px+=push*facing
+ if push~=0 then
+  try_move_x(push*facing)
+ end
 end
 
 function air_control(lr)
@@ -604,11 +607,6 @@ function _update60()
   -- buffered x: sweep
   elseif buf_sweep>0 then
    start_sweep()
-  -- down: interact
-  elseif btnp(3) then
-   -- interact placeholder
-   -- state="interact"
-  -- movement
   elseif lr~=0 then
    vx=lr*run_spd
    facing=lr
@@ -732,12 +730,6 @@ function _update60()
    state="land"
   end
 
- --elseif state=="interact" then
- -- placeholder for future interaction
- -- if anim_done() then
- --  state="idle"
- --  set_anim(a_idle)
- -- end
  end
 
  -- -- physics --
@@ -751,7 +743,6 @@ function _update60()
 
  -- move Y, then resolve Y collisions
  py+=vy
- local was_grounded=grounded
  resolve_y()
 
  -- fallback: bottom of map
@@ -788,28 +779,14 @@ function _draw()
  -- draw player anchored to body center
  local ax=anc[cur_anim][cur_frame]
  local flip=facing==-1
+ local vx=get_visual_x()
  local dx
- if state=="attack" or state=="sweep" then
-  local drift=ax-atk_anchor0
-  if flip then
-   dx=px-drift-(cell_w-1-ax)
-  else
-   dx=px+drift-ax
-  end
+ if flip then
+  dx=vx-(cell_w-1-ax)
  else
-  if flip then
-   dx=px-(cell_w-1-ax)
-  else
-   dx=px-ax
-  end
+  dx=vx-ax
  end
  draw_char(cur_anim,cur_frame,dx-cam_x,py-cam_y,flip)
-
- -- debug: draw collision box
- if debug_box then
-  rect(px+cb_x0-cam_x,py+cb_y0-cam_y,
-       px+cb_x1-1-cam_x,py+cb_y1-1-cam_y,8)
- end
 
  -- hud
  print(state,1,1,7)
