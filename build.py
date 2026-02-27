@@ -593,16 +593,28 @@ def build_level_data(tileset, map_data):
         print(f"  WARNING: {num_rt} runtime tiles exceeds 63 tile limit!")
         print(f"  (sprite sheet can hold 64 16x16 tiles, ID 0 reserved for empty)")
 
-    # Step 3: Compress tile pixel data (raw sprite sheet bytes, not RLE)
-    # Each tile = 128 bytes in PICO-8 format. We store them sequentially.
-    # At runtime, poke directly into sprite sheet memory.
-    tile_data = bytearray()
+    # Step 3: Nibble-RLE compress tile pixels
+    # Same encoding as character sprites: each byte = (color<<4 | run-1)
+    # Store offset table so runtime can find each tile's data.
+    tile_rles = []
     for pixels in rt_tiles:
-        tile_data.extend(pixels_to_spritesheet_bytes(pixels))
-    print(f"  Tile pixel data: {len(tile_data)} bytes ({num_rt} × 128)")
+        tile_rles.append(nibble_rle_encode(pixels))
+
+    # Offset table: 2 bytes per tile (u16 offset from start of tile blob)
+    tile_index = bytearray()
+    tile_blob = bytearray()
+    for rle in tile_rles:
+        tile_index.append(len(tile_blob) & 0xFF)
+        tile_index.append((len(tile_blob) >> 8) & 0xFF)
+        tile_blob.extend(rle)
+
+    tile_section_size = len(tile_index) + len(tile_blob)
+    raw_size = num_rt * 128
+    print(f"  Tile pixels: {tile_section_size}b compressed"
+          f" (from {raw_size}b, {tile_section_size*100//raw_size}%)")
 
     # Step 4: Build runtime map (2-byte RLE: cell_byte, run_length)
-    # cell_byte: 0 = empty, 1-63 = runtime tile ID (no flips needed since flattened)
+    # cell_byte: 0 = empty, 1-63 = runtime tile ID
     map_rle = bytearray()
     for y in range(map_h):
         x = 0
@@ -615,7 +627,6 @@ def build_level_data(tileset, map_data):
                 packed_xf = xf  # rot | hflip<<2 | vflip<<3
                 rt_id = rt_tile_map.get((ti, packed_xf), 0)
                 cell = rt_id  # 1-based, 0=empty
-            # Count run
             run = 1
             while x + run < map_w and run < 255:
                 nti = map_grid[y][x + run]
@@ -623,55 +634,51 @@ def build_level_data(tileset, map_data):
                 if nti == 255:
                     ncell = 0
                 else:
-                    npacked = nxf
-                    ncell = rt_tile_map.get((nti, npacked), 0)
+                    ncell = rt_tile_map.get((nti, nxf), 0)
                 if ncell != cell:
                     break
                 run += 1
             map_rle.append(cell)
             map_rle.append(run)
             x += run
-    print(f"  Map RLE data: {len(map_rle)} bytes")
+    print(f"  Map RLE: {len(map_rle)}b")
 
     # Step 5: Pack into __map__ format
-    # Header: 10 bytes
+    # Header (11 bytes):
+    #   num_tiles:      u8
+    #   map_w:          u16 LE
+    #   map_h:          u16 LE
+    #   spawn_x:        u16 LE (0xFFFF = none)
+    #   spawn_y:        u16 LE (0xFFFF = none)
+    #   tile_blob_size: u16 LE
+    # Then: tile_index (num_tiles * 2 bytes)
+    # Then: tile_blob (RLE compressed pixel data)
+    # Then: map_rle (2-byte pairs: cell, run)
     header = bytearray()
-    header.append(num_rt)                           # num_tiles (u8)
-    header.append(map_w & 0xFF)                     # map_w lo
-    header.append((map_w >> 8) & 0xFF)              # map_w hi
-    header.append(map_h & 0xFF)                     # map_h lo
-    header.append((map_h >> 8) & 0xFF)              # map_h hi
+    header.append(num_rt)
+    header.append(map_w & 0xFF)
+    header.append((map_w >> 8) & 0xFF)
+    header.append(map_h & 0xFF)
+    header.append((map_h >> 8) & 0xFF)
     sx = spawn_x if spawn_x >= 0 else 0xFFFF
     sy = spawn_y if spawn_y >= 0 else 0xFFFF
     header.append(sx & 0xFF)
     header.append((sx >> 8) & 0xFF)
     header.append(sy & 0xFF)
     header.append((sy >> 8) & 0xFF)
-    tile_data_len = len(tile_data)
-    header.append(tile_data_len & 0xFF)             # tile_data_size lo
-    header.append((tile_data_len >> 8) & 0xFF)      # tile_data_size hi
-
-    total_bytes = len(header) + len(tile_data) + len(map_rle)
-    print(f"  Total __map__ data: {total_bytes} bytes (limit: 4096)")
+    header.append(len(tile_blob) & 0xFF)
+    header.append((len(tile_blob) >> 8) & 0xFF)
 
     map_section = bytearray()
     map_section.extend(header)
-    map_section.extend(tile_data)
+    map_section.extend(tile_index)
+    map_section.extend(tile_blob)
     map_section.extend(map_rle)
 
-    overflow_str = None
+    total_bytes = len(map_section)
+    print(f"  Total __map__: {total_bytes}/4096 bytes ({total_bytes*100//4096}%)")
     if total_bytes > 4096:
-        # Overflow: put map RLE in Lua string, tile data in __map__
-        print(f"  OVERFLOW: {total_bytes - 4096} bytes over limit")
-        print(f"  Tile data ({len(header) + len(tile_data)}b) in __map__, map RLE ({len(map_rle)}b) in Lua string")
-        map_section = bytearray()
-        map_section.extend(header)
-        map_section.extend(tile_data)
-        # Encode map RLE as Lua hex string
-        overflow_hex = "".join(f"\\x{b:02x}" for b in map_rle)
-        overflow_str = f'map_rle_str="{overflow_hex}"'
-    else:
-        overflow_str = None
+        print(f"  ERROR: exceeds 4096 by {total_bytes - 4096} bytes!")
 
     # Step 6: Generate Lua metadata
     gen = []
@@ -683,13 +690,8 @@ def build_level_data(tileset, map_data):
         gen.append(f"spn_x={spawn_x} spn_y={spawn_y}")
     else:
         gen.append(f"spn_x=0 spn_y=0")
-    if overflow_str:
-        gen.append(f"map_in_str=true")
-        gen.append(overflow_str)
-    else:
-        gen.append(f"map_in_str=false")
 
-    # Tile flags table (runtime tile ID → flag byte)
+    # Tile flags table
     flag_entries = []
     for rt_id in range(1, num_rt + 1):
         f = rt_tile_flags.get(rt_id, 0)
