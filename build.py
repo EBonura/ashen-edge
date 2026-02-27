@@ -18,16 +18,20 @@ import os, json, hashlib, re, struct, math
 from PIL import Image
 from itertools import combinations
 
-ASSET_DIR = "/tmp/assets/All 3 Sprites/assassin"
 DIR = os.path.dirname(os.path.abspath(__file__))
+ASSET_DIR = os.path.join(DIR, "assets", "assassin")
 OUTPUT_P8 = os.path.join(DIR, "ashen_edge.p8")
 LEVEL_JSON = os.path.join(DIR, "level_data.json")
 TRANS = 14  # transparency color index
 CELL_W, CELL_H = 91, 19
 
 # ── Tileset config ──
-TILESET_PNG = "/Users/ebonura/Downloads/DARK Edition 2/Tileset/DARK Edition Tileset No background.png"
+TILESET_PNG = os.path.join(DIR, "assets", "tileset", "DARK Edition Tileset No background.png")
 BG_TILESET_PNG = os.path.join(DIR, "bg_tileset.png")
+DOOR_PNG = os.path.join(DIR, "assets", "door", "door open 41x48.png")
+SWITCH_START_PNG = os.path.join(DIR, "assets", "save", "start up16x19.png")
+SWITCH_IDLE_PNG = os.path.join(DIR, "assets", "save", "idle 16x19.png")
+SWITCH_DOWN_PNG = os.path.join(DIR, "assets", "save", "down 16x19.png")
 TILE_SIZE = 16
 TILESET_COLS = 18
 TILESET_ROWS = 16
@@ -524,6 +528,30 @@ def pixels_to_spritesheet_bytes(pixels):
     return out
 
 
+def extract_horiz_frames(png_path, src_fw, src_fh, cell_w, cell_h, nframes=None, pad_x=0):
+    """Extract frames from a horizontal strip PNG.
+    Returns list of pixel arrays (cell_w*cell_h each), mapped to nearest P8 color.
+    pad_x: left padding when src_fw < cell_w (centers frame horizontally)."""
+    img = Image.open(png_path).convert("RGBA")
+    if nframes is None:
+        nframes = img.width // src_fw
+    frames = []
+    for f in range(nframes):
+        x0 = f * src_fw
+        pixels = [TRANS] * (cell_w * cell_h)
+        for y in range(min(src_fh, cell_h)):
+            for x in range(src_fw):
+                r, g, b, a = img.getpixel((x0 + x, y))
+                dx = x + pad_x
+                if dx < cell_w:
+                    if a < 128:
+                        pixels[y * cell_w + dx] = TRANS
+                    else:
+                        pixels[y * cell_w + dx] = nearest_p8(r, g, b)
+        frames.append(pixels)
+    return frames
+
+
 def read_level_json(json_path):
     """Read level data from level_data.json.
     Returns (map_w, map_h, map_grids, xform_grids, spawn_x, spawn_y, flags, band_colors, parallax)
@@ -582,7 +610,9 @@ def read_level_json(json_path):
     if "parallax" in data:
         parallax = [float(v) for v in data["parallax"]][:2]
 
-    return w, h, map_grids, xform_grids, sx, sy, flags, band_colors, parallax
+    entities = data.get("entities", [])
+
+    return w, h, map_grids, xform_grids, sx, sy, flags, band_colors, parallax, entities
 
 
 ## -- Map layer encoding modes --
@@ -727,7 +757,7 @@ def build_level_data(tileset, bg_tileset, map_data):
         tile_flags: dict of runtime_tile_id -> flag byte
         gen_lines: list of Lua code lines for generated block
     """
-    map_w, map_h, map_grids, xform_grids, spawn_x, spawn_y, editor_flags, band_colors, parallax = map_data
+    map_w, map_h, map_grids, xform_grids, spawn_x, spawn_y, editor_flags, band_colors, parallax, entities = map_data
     num_layers = len(map_grids)
     # Layer 0 = BG (uses bg_tileset), Layer 1 = Main (uses tileset)
     layer_tilesets = [bg_tileset, tileset]
@@ -920,6 +950,16 @@ def build_level_data(tileset, bg_tileset, map_data):
     for ld in layer_data:
         map_section.extend(ld)
 
+    # Step 5b: Append entity data after layer data
+    map_section.append(len(entities))
+    for ent in entities:
+        map_section.append(ent.get("type", 1) & 0xFF)
+        map_section.append(ent.get("x", 0) & 0xFF)
+        map_section.append(ent.get("y", 0) & 0xFF)
+        map_section.append(ent.get("group", 1) & 0xFF)
+    if entities:
+        print(f"  Entities: {len(entities)} ({1 + len(entities) * 4}b)")
+
     total_bytes = len(map_section)
     print(f"  Total __map__: {total_bytes}/4096 bytes ({total_bytes*100//4096}%)")
     if total_bytes > 4096:
@@ -944,7 +984,7 @@ def build_level_data(tileset, bg_tileset, map_data):
     flag_vals = ",".join(str(rt_tile_flags.get(rt_id, 0)) for rt_id in range(1, num_rt + 1))
     gen.append(f'tflg=split"{flag_vals}"')
 
-    return map_section, num_rt, rt_tile_flags, gen
+    return map_section, num_rt, rt_tile_flags, gen, num_spr_tiles
 
 
 def bytes_to_map_hex(data):
@@ -997,18 +1037,63 @@ def build_cart():
     for off in anim_offsets:
         char_chunk.append(off & 0xFF)
         char_chunk.append((off >> 8) & 0xFF)
+    # ── Extract and compress entity animations ──
+    print("\nExtracting entity frames...")
+    # Door: 15 frames, 41x48 horizontal strip, padded to 48x48
+    door_frames = extract_horiz_frames(DOOR_PNG, 41, 48, 48, 48, pad_x=3)
+    print(f"    door: {len(door_frames)} frames from {os.path.basename(DOOR_PNG)}")
+
+    # Switch: 3 animations from horizontal strips (16x19)
+    sw_start_frames = extract_horiz_frames(SWITCH_START_PNG, 16, 19, 16, 19)
+    print(f"    sw_start: {len(sw_start_frames)} frames from {os.path.basename(SWITCH_START_PNG)}")
+    sw_idle_frames = extract_horiz_frames(SWITCH_IDLE_PNG, 16, 19, 16, 19, nframes=1)
+    print(f"    sw_idle: {len(sw_idle_frames)} frames from {os.path.basename(SWITCH_IDLE_PNG)}")
+    sw_down_frames = extract_horiz_frames(SWITCH_DOWN_PNG, 16, 19, 16, 19)
+    print(f"    sw_down: {len(sw_down_frames)} frames from {os.path.basename(SWITCH_DOWN_PNG)}")
+
+    print("\nCompressing entity animations...")
+    ent_anim_info = [
+        ("door",     door_frames,     48, 48),
+        ("sw_start", sw_start_frames, 16, 19),
+        ("sw_idle",  sw_idle_frames,  16, 19),
+        ("sw_down",  sw_down_frames,  16, 19),
+    ]
+    for ent_name, ent_frames, ent_cw, ent_ch in ent_anim_info:
+        block, info = encode_animation(ent_name, ent_frames, ent_cw, ent_ch)
+        anim_blocks.append((ent_name, block))
+        total_frames += len(ent_frames)
+        print(info)
+
+    # Rebuild char_chunk with all animations (player + entity)
+    num_anims = len(anim_blocks)
+    anim_offsets = []
+    anim_data = bytearray()
+    for name, block in anim_blocks:
+        anim_offsets.append(len(anim_data))
+        anim_data.extend(block)
+
+    char_chunk = bytearray()
+    char_chunk.append(num_anims)
+    char_chunk.append(CELL_W)
+    char_chunk.append(CELL_H)
+    for off in anim_offsets:
+        char_chunk.append(off & 0xFF)
+        char_chunk.append((off >> 8) & 0xFF)
     char_chunk.extend(anim_data)
 
     total = len(char_chunk)
     print(f"\n=== TOTAL ===")
-    print(f"  {num_anims} anims, {total_frames} frames")
+    print(f"  {num_anims} anims ({len(ANIMS)} player + {len(ent_anim_info)} entity), {total_frames} frames")
     print(f"  Total: {total} / 8192 bytes ({total*100//8192}%)")
 
     if total > 8192:
         print(f"  WARNING: exceeds sprite memory by {total - 8192} bytes!")
         print(f"  (but generating cart anyway for testing)")
 
-    gfx = bytes_to_gfx(char_chunk)
+    # GFX is just the char_chunk (no entity tiles in spritesheet)
+    gfx_buf = bytearray(8192)
+    gfx_buf[:len(char_chunk)] = char_chunk
+
     # Build generated data block
     gen_lines = []
     gen_lines.append(f"-- {total_frames} frames, {num_anims} anims")
@@ -1016,22 +1101,30 @@ def build_cart():
     gen_lines.append(f"char_base=0")
     gen_lines.append(f"cell_w={CELL_W} cell_h={CELL_H}")
     gen_lines.append(f"trans={TRANS}")
-    # anim indices — multi-assign to save tokens
-    anim_vars = []
-    for ai, (name, fname, _) in enumerate(ANIMS):
-        anim_var = {
-            "idle": "a_idle", "run": "a_run", "jump": "a_jump",
-            "fall": "a_fall", "hit": "a_hit", "land": "a_land",
-            "attack1": "a_atk1", "cross_slice": "a_xslice",
-            "sweep": "a_sweep", "death": "a_death",
-        }[name]
-        anim_vars.append(anim_var)
+
+    # anim indices — player anims
+    anim_var_map = {
+        "idle": "a_idle", "run": "a_run", "jump": "a_jump",
+        "fall": "a_fall", "hit": "a_hit", "land": "a_land",
+        "attack1": "a_atk1", "cross_slice": "a_xslice",
+        "sweep": "a_sweep", "death": "a_death",
+    }
+    anim_vars = [anim_var_map[name] for name, _, _ in ANIMS]
     lhs = ",".join(anim_vars)
     rhs = ",".join(str(i+1) for i in range(len(ANIMS)))
     gen_lines.append(f"{lhs}={rhs}")
 
-    # anchor data — pack into split-decoded string
-    # format: "v,v,v|v,v,v|..." with | separating anims
+    # entity anim indices
+    ent_var_map = {
+        "door": "a_door", "sw_start": "a_sst",
+        "sw_idle": "a_sid", "sw_down": "a_sdn",
+    }
+    ent_vars = [ent_var_map[name] for name, _, _, _ in ent_anim_info]
+    ent_lhs = ",".join(ent_vars)
+    ent_rhs = ",".join(str(len(ANIMS) + i + 1) for i in range(len(ent_anim_info)))
+    gen_lines.append(f"{ent_lhs}={ent_rhs}")
+
+    # anchor data — player anims only
     anc_parts = []
     for ai, (name, fname, _) in enumerate(ANIMS):
         frames = all_frames[name]
@@ -1056,11 +1149,12 @@ def build_cart():
     bg_tileset = slice_bg_tileset()
     print(f"  {len(bg_tileset)} unique BG tiles from bg_tileset")
 
+    num_spr_tiles = 0
     if os.path.exists(LEVEL_JSON):
         print(f"\nReading level data from {LEVEL_JSON}...")
         map_data = read_level_json(LEVEL_JSON)
         if map_data:
-            map_section, num_rt, tile_flags, level_gen_lines = build_level_data(tileset, bg_tileset, map_data)
+            map_section, num_rt, tile_flags, level_gen_lines, num_spr_tiles = build_level_data(tileset, bg_tileset, map_data)
             map_hex = bytes_to_map_hex(map_section)
         else:
             print("  No map data found in JSON, skipping level processing")
@@ -1070,6 +1164,9 @@ def build_cart():
     # Combine generated blocks
     if level_gen_lines:
         generated_block += "\n" + "\n".join(level_gen_lines)
+
+    # Convert final gfx buffer to hex
+    gfx = bytes_to_gfx(gfx_buf)
 
     # Read game lua, inject generated data
     game_lua_path = os.path.join(DIR, "ashen_edge.lua")
