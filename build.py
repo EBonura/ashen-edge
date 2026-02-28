@@ -15,7 +15,7 @@ Level pipeline:
 """
 
 import os, json, hashlib, re, struct, math
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from itertools import combinations
 
 DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +33,8 @@ SWITCH_START_PNG = os.path.join(DIR, "assets", "save", "start up16x19.png")
 SWITCH_IDLE_PNG = os.path.join(DIR, "assets", "save", "idle 16x19.png")
 SWITCH_DOWN_PNG = os.path.join(DIR, "assets", "save", "down 16x19.png")
 TITLE_PNG = os.path.join(DIR, "assets", "title", "title.png")
+ALKHEMIKAL_TTF = os.path.join(DIR, "assets", "fonts", "alkhemikal_src.ttf")
+FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!.,:-'?/()"
 TILE_SIZE = 16
 TILESET_COLS = 18
 TILESET_ROWS = 16
@@ -295,10 +297,35 @@ def encode_kd_with_keys(frames_pixels, key_indices):
     return key_rles, assignments, delta_offsets, data
 
 
-def encode_type0(name, frames_pixels, fw, fh):
+def pack_palette(palette):
+    """Pack palette entries (P8 color indices) as nibbles into bytes."""
+    data = bytearray()
+    for i in range(0, len(palette), 2):
+        lo = palette[i] & 0xF
+        hi = (palette[i+1] & 0xF) if i+1 < len(palette) else 0
+        data.append((lo << 4) | hi)
+    return data
+
+
+def quantize_pixels(pixels, palette):
+    """Map P8 color indices to palette indices (nearest by index, exact match preferred)."""
+    result = []
+    for p in pixels:
+        best = 0
+        for i, pc in enumerate(palette):
+            if p == pc:
+                best = i
+                break
+        result.append(best)
+    return result
+
+
+def encode_type0(name, frames_pixels, fw, fh, bpp=4, palette=None):
     n = len(frames_pixels)
     bx, by, bw, bh = get_bbox(frames_pixels, fw, fh)
     cropped = [crop_pixels(f, fw, bx, by, bw, bh) for f in frames_pixels]
+    if bpp < 4 and palette:
+        cropped = [quantize_pixels(f, palette) for f in cropped]
     candidates = pick_keyframes_candidates(cropped)
     best_block = None
     best_info = ""
@@ -308,6 +335,9 @@ def encode_type0(name, frames_pixels, fw, fh):
         block = bytearray()
         block.append(n)
         block.append(0)  # type 0
+        block.append(bpp)
+        if bpp < 4 and palette:
+            block.extend(pack_palette(palette))
         block.append(nkeys)
         block.append(bx)
         block.append(by)
@@ -333,7 +363,7 @@ def encode_type0(name, frames_pixels, fw, fh):
 
 # ── Type 1: Per-frame independent RLE ──
 
-def encode_type1(name, frames_pixels, fw, fh):
+def encode_type1(name, frames_pixels, fw, fh, bpp=4, palette=None):
     n = len(frames_pixels)
     frame_datas = []
     for f in frames_pixels:
@@ -342,6 +372,8 @@ def encode_type1(name, frames_pixels, fw, fh):
             frame_datas.append(bytearray([0, 0, 0, 0]))
         else:
             cropped = crop_pixels(f, fw, bx, by, bw, bh)
+            if bpp < 4 and palette:
+                cropped = quantize_pixels(cropped, palette)
             rle = ext_nibble_rle_encode(cropped)
             fd = bytearray([bx, by, bw, bh])
             fd.extend(rle)
@@ -349,6 +381,9 @@ def encode_type1(name, frames_pixels, fw, fh):
     block = bytearray()
     block.append(n)
     block.append(1)  # type 1
+    block.append(bpp)
+    if bpp < 4 and palette:
+        block.extend(pack_palette(palette))
     offset = 0
     for fd in frame_datas:
         block.append(offset & 0xFF)
@@ -361,16 +396,37 @@ def encode_type1(name, frames_pixels, fw, fh):
 
 # ── Pick best encoding per animation ──
 
-def encode_animation(name, frames_pixels, fw, fh):
+def encode_animation(name, frames_pixels, fw, fh, bpp=4, palette=None):
     n = len(frames_pixels)
-    kd_block, kd_info = encode_type0(name, frames_pixels, fw, fh)
-    pf_block, pf_info = encode_type1(name, frames_pixels, fw, fh)
+    kd_block, kd_info = encode_type0(name, frames_pixels, fw, fh, bpp, palette)
+    pf_block, pf_info = encode_type1(name, frames_pixels, fw, fh, bpp, palette)
+    bpp_tag = f" {bpp}bpp" if bpp < 4 else ""
     if len(pf_block) < len(kd_block):
-        info = f"    {name:12s}: {n:2d}f, PF {len(pf_block)}b (kd={len(kd_block)}b)"
+        info = f"    {name:12s}: {n:2d}f, PF {len(pf_block)}b (kd={len(kd_block)}b){bpp_tag}"
         return pf_block, info
     else:
-        info = f"    {name:12s}: {n:2d}f, {kd_info} {len(kd_block)}b (pf={len(pf_block)}b)"
+        info = f"    {name:12s}: {n:2d}f, {kd_info} {len(kd_block)}b (pf={len(pf_block)}b){bpp_tag}"
         return kd_block, info
+
+
+def extract_font_frames(font_path, size, chars, threshold=128):
+    """Render each char as a 1-bit pixel frame. Returns (frames, cell_w, cell_h)."""
+    from PIL import ImageDraw as _ID, ImageFont as _IF
+    font = _IF.truetype(font_path, size)
+    # Measure cell dimensions
+    cell_w = max(font.getbbox(c)[2] for c in chars if c.strip() or c == ' ')
+    cell_h = max(font.getbbox(c)[3] for c in chars if c.strip() or c == ' ')
+    frames = []
+    for ch in chars:
+        cell = Image.new("L", (cell_w, cell_h), 0)
+        d = _ID.Draw(cell)
+        bb = font.getbbox(ch)
+        d.text((-bb[0], -bb[1]), ch, font=font, fill=255)
+        pixels = []
+        for v in cell.getdata():
+            pixels.append(7 if v >= threshold else TRANS)
+        frames.append(pixels)
+    return frames, cell_w, cell_h
 
 
 # ── GFX output ──
@@ -1055,16 +1111,22 @@ def build_cart():
     title_frames = extract_horiz_frames(TITLE_PNG, 128, 128, 128, 128, nframes=1)
     print(f"    title: 1 frame from {os.path.basename(TITLE_PNG)}")
 
+    print("\nExtracting font frames...")
+    font_frames, font_cw, font_ch = extract_font_frames(ALKHEMIKAL_TTF, 16, FONT_CHARS)
+    print(f"    alkhemikal: {len(font_frames)} chars, cell {font_cw}x{font_ch}")
+
     print("\nCompressing entity animations...")
+    # Tuple: (name, frames, cell_w, cell_h, bpp, palette)
     ent_anim_info = [
-        ("door",     door_frames,     48, 48),
-        ("sw_start", sw_start_frames, 16, 19),
-        ("sw_idle",  sw_idle_frames,  16, 19),
-        ("sw_down",  sw_down_frames,  16, 19),
-        ("title",    title_frames,   128, 128),
+        ("door",     door_frames,     48,      48,      4, None),
+        ("sw_start", sw_start_frames, 16,      19,      4, None),
+        ("sw_idle",  sw_idle_frames,  16,      19,      4, None),
+        ("sw_down",  sw_down_frames,  16,      19,      4, None),
+        ("title",    title_frames,   128,     128,      4, None),
+        ("font",     font_frames,    font_cw, font_ch,  4, None),
     ]
-    for ent_name, ent_frames, ent_cw, ent_ch in ent_anim_info:
-        block, info = encode_animation(ent_name, ent_frames, ent_cw, ent_ch)
+    for ent_name, ent_frames, ent_cw, ent_ch, ent_bpp, ent_pal in ent_anim_info:
+        block, info = encode_animation(ent_name, ent_frames, ent_cw, ent_ch, ent_bpp, ent_pal)
         anim_blocks.append((ent_name, block))
         total_frames += len(ent_frames)
         print(info)
@@ -1123,9 +1185,13 @@ def build_cart():
     ent_var_map = {
         "door": "a_door", "sw_start": "a_sst",
         "sw_idle": "a_sid", "sw_down": "a_sdn",
-        "title": "a_title",
+        "title": "a_title", "font": "a_font",
     }
-    ent_vars = [ent_var_map[name] for name, _, _, _ in ent_anim_info]
+    gen_lines.append(f"font_cw={font_cw} font_ch={font_ch}")
+    # font lookup table: char code -> frame index (1-based)
+    font_map_entries = ",".join(f"[{ord(c)}]={i+1}" for i, c in enumerate(FONT_CHARS))
+    gen_lines.append(f"font_map={{{font_map_entries}}}")
+    ent_vars = [ent_var_map[name] for name, _, _, _, _, _ in ent_anim_info]
     ent_lhs = ",".join(ent_vars)
     ent_rhs = ",".join(str(len(ANIMS) + i + 1) for i in range(len(ent_anim_info)))
     gen_lines.append(f"{ent_lhs}={ent_rhs}")

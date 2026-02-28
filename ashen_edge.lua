@@ -14,6 +14,20 @@ combo_chain={a_atk1,a_xslice}
 -- game state: 0=title, 1=play
 gs=0
 
+-- fade: v=0 clear, v=8 black, d=direction (1=out,-1=in,0=idle)
+fade_v=8 fade_d=-1 fade_t=0
+-- screen palette darkening table (colors 1-15, 8 steps toward black)
+-- flat: row c = indices (c-1)*8+1..(c-1)*8+8, access via fdp[(c-1)*8+v]
+fdp=split"1,1,1,1,0,0,0,0,2,2,2,1,1,0,0,0,3,3,4,5,2,1,1,0,4,4,2,2,1,1,1,0,5,5,2,2,1,1,1,0,6,6,13,5,2,1,1,0,7,7,6,13,5,2,1,0,8,8,9,4,5,2,1,0,9,9,4,5,2,1,1,0,10,15,9,4,5,2,1,0,11,11,3,4,5,2,1,0,12,12,13,5,5,2,1,0,13,13,5,5,2,1,1,0,14,9,9,4,5,2,1,0,15,14,9,4,5,2,1,0"
+function apply_fade(v)
+ if v==0 then
+  for c=0,15 do pal(c,c,1) end
+  return
+ end
+ for c=1,15 do pal(c,fdp[(c-1)*8+v],1) end
+ pal(0,0,1)
+end
+
 -- anim speeds (frames per anim frame)
 -- order: idle,run,jump,fall,hit,land,atk1,xslice,sweep,death,door,sw_start,sw_idle,sw_down,title
 aspd=split"6,5,5,5,5,2,6,6,4,6,6,6,6,8,30"
@@ -120,13 +134,24 @@ function read_anim(a)
  local ab=cb+3+na*2+aoff
  local nf=peek(ab)
  local enc=peek(ab+1)
+ -- read bpp and optional palette (new field at ab+2)
+ local bpp=peek(ab+2)
+ local np=bpp<4 and (1<<bpp) or 0
+ local pal={}
+ for i=0,np-1 do
+  local b=peek(ab+3+flr(i/2))
+  pal[i+1]=(i%2==0) and (b>>4) or (b&0xf)
+ end
+ local pal_bytes=flr((np+1)/2)
+ -- h = start of enc-specific header fields
+ local h=ab+3+pal_bytes
  if enc==0 then
-  local nk=peek(ab+2)
-  local bx=peek(ab+3)
-  local by=peek(ab+4)
-  local bw=peek(ab+5)
-  local bh=peek(ab+6)
-  local ki_off=ab+7
+  local nk=peek(h)
+  local bx=peek(h+1)
+  local by=peek(h+2)
+  local bw=peek(h+3)
+  local bh=peek(h+4)
+  local ki_off=h+5
   local ks_off=ki_off+nk
   local as_off=ks_off+nk*2
   local do_off=as_off+nf
@@ -137,16 +162,18 @@ function read_anim(a)
   end
   return {
    enc=0,nf=nf,nk=nk,
+   bpp=bpp,pal=pal,
    bx=bx,by=by,bw=bw,bh=bh,
    ki_off=ki_off,ks_off=ks_off,
    as_off=as_off,do_off=do_off,
    data_off=data_off,ksz=ksz
   }
  else
-  local fo_off=ab+2
+  local fo_off=h
   local data_off=fo_off+nf*2
   return {
    enc=1,nf=nf,
+   bpp=bpp,pal=pal,
    fo_off=fo_off,data_off=data_off
   }
  end
@@ -195,6 +222,15 @@ function cache_anims()
     else
      local buf=decode_rle(addr+4,bw*bh)
      frames[f]={buf,bx,by,bw,bh}
+    end
+   end
+  end
+  -- apply palette mapping if bpp < 4
+  if ai.bpp<4 and #ai.pal>0 then
+   for f=1,#frames do
+    local buf=frames[f][1]
+    for i=1,#buf do
+     buf[i]=ai.pal[buf[i]+1] or trans
     end
    end
   end
@@ -981,6 +1017,30 @@ function draw_ent(a,f,sx,sy)
  end
 end
 
+function p8print(str,x,y,col,sp)
+ col=col or 7
+ sp=sp or 1
+ local cx=x
+ for i=1,#str do
+  local f=font_map[ord(sub(str,i,i))]
+  if f then
+   local buf,bx,by,bw,bh=get_frame(a_font,f)
+   if bw>0 then
+    local idx=1
+    for dy=0,bh-1 do
+     for dx=0,bw-1 do
+      if buf[idx]~=trans then
+       pset(cx+bx+dx,y+by+dy,col)
+      end
+      idx+=1
+     end
+    end
+   end
+  end
+  cx+=font_cw+sp
+ end
+end
+
 function draw_ents()
  for e in all(ents) do
   local sx=e.tx*16-cam_x
@@ -991,8 +1051,25 @@ function draw_ents()
 end
 
 function _update60()
+ -- fade update
+ if fade_d~=0 then
+  fade_t+=1
+  if fade_t>=4 then
+   fade_t=0
+   fade_v+=fade_d
+   if fade_v>=8 then
+    fade_v=8
+    if gs==0 then gs=1 end
+    fade_d=-1
+   elseif fade_v<=0 then
+    fade_v=0 fade_d=0
+   end
+  end
+ end
  if gs==0 then
-  if btnp(4) or btnp(5) then gs=1 end
+  if fade_d==0 and (btnp(4) or btnp(5)) then
+   fade_d=1
+  end
   return
  end
  local lr=0
@@ -1214,11 +1291,22 @@ function draw_title()
    idx+=1
   end
  end
+ -- title text (top, red, tight spacing)
+ local t1="Ashen Edge"
+ local tw=#t1*font_cw+(#t1-1)*-3
+ p8print(t1,64-tw\2,10,8,-3)
+ -- blinking prompt
+ if (time()*2)%2<1 then
+  local t2="PRESS X"
+  local pw=#t2*font_cw+(#t2-1)*-3
+  p8print(t2,64-pw\2,108,6,-3)
+ end
 end
 
 function _draw()
  if gs==0 then
   draw_title()
+  apply_fade(fade_v)
   return
  end
  cls(1)
@@ -1250,4 +1338,5 @@ function _draw()
 
  -- hud: gem counter
  print(gems,2,2,8)
+ apply_fade(fade_v)
 end
