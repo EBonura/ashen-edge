@@ -131,8 +131,8 @@ function decode_skip(buf,off)
  end
 end
 
-function read_anim(a)
- local cb=char_base
+function read_anim(a,cb)
+ cb=cb or char_base
  local na=peek(cb)
  local aoff=pk2(cb+3+(a-1)*2)
  local ab=cb+3+na*2+aoff
@@ -185,61 +185,69 @@ end
 
 acache={}
 
+function decode_anim(ai)
+ local frames={}
+ if ai.enc==0 then
+  local npix=ai.bw*ai.bh
+  local kbufs={}
+  local koff=ai.data_off
+  for i=0,ai.nk-1 do
+   kbufs[i]=decode_rle(koff,npix,ai.bpp)
+   koff+=ai.ksz[i]
+  end
+  for f=1,ai.nf do
+   local ki=peek(ai.as_off+f-1)
+   local buf={}
+   local kb=kbufs[ki]
+   for i=1,#kb do buf[i]=kb[i] end
+   local doff=pk2(ai.do_off+(f-1)*2)
+   decode_skip(buf,ai.data_off+doff)
+   frames[f]={buf,ai.bx,ai.by,ai.bw,ai.bh}
+  end
+ else
+  for f=1,ai.nf do
+   local foff=pk2(ai.fo_off+(f-1)*2)
+   local addr=ai.data_off+foff
+   local bx=peek(addr)
+   local by=peek(addr+1)
+   local bw=peek(addr+2)
+   local bh=peek(addr+3)
+   if bw==0 or bh==0 then
+    frames[f]={{},0,0,0,0}
+   else
+    local buf=decode_rle(addr+4,bw*bh,ai.bpp)
+    frames[f]={buf,bx,by,bw,bh}
+   end
+  end
+ end
+ if ai.bpp<4 and #ai.pal>0 then
+  for f=1,#frames do
+   local buf=frames[f][1]
+   for i=1,#buf do
+    buf[i]=ai.pal[buf[i]+1] or trans
+   end
+  end
+ end
+ return frames
+end
+
 function cache_anims()
- -- fully decode all frames into lua
- -- tables so sprite sheet memory can
- -- be overwritten by tile data later
+ -- copy string-backed anims to free RAM
+ local p=title_base
+ for i=1,#title_data do poke(p,ord(title_data,i)) p+=1 end
+ p=font_base
+ for i=1,#font_data do poke(p,ord(font_data,i)) p+=1 end
+ -- decode main anims from gfx memory
  local na=peek(char_base)
  for a=1,na do
-  local ai=read_anim(a)
-  local frames={}
-  if ai.enc==0 then
-   local npix=ai.bw*ai.bh
-   -- decode keyframes
-   local kbufs={}
-   local koff=ai.data_off
-   for i=0,ai.nk-1 do
-    kbufs[i]=decode_rle(koff,npix,ai.bpp)
-    koff+=ai.ksz[i]
-   end
-   -- decode every frame now
-   for f=1,ai.nf do
-    local ki=peek(ai.as_off+f-1)
-    local buf={}
-    local kb=kbufs[ki]
-    for i=1,#kb do buf[i]=kb[i] end
-    local doff=pk2(ai.do_off+(f-1)*2)
-    decode_skip(buf,ai.data_off+doff)
-    frames[f]={buf,ai.bx,ai.by,ai.bw,ai.bh}
-   end
-  else
-   -- type 1: decode each frame
-   for f=1,ai.nf do
-    local foff=pk2(ai.fo_off+(f-1)*2)
-    local addr=ai.data_off+foff
-    local bx=peek(addr)
-    local by=peek(addr+1)
-    local bw=peek(addr+2)
-    local bh=peek(addr+3)
-    if bw==0 or bh==0 then
-     frames[f]={{},0,0,0,0}
-    else
-     local buf=decode_rle(addr+4,bw*bh,ai.bpp)
-     frames[f]={buf,bx,by,bw,bh}
-    end
-   end
-  end
-  -- apply palette mapping if bpp < 4
-  if ai.bpp<4 and #ai.pal>0 then
-   for f=1,#frames do
-    local buf=frames[f][1]
-    for i=1,#buf do
-     buf[i]=ai.pal[buf[i]+1] or trans
-    end
-   end
-  end
-  acache[a]={ai=ai,frames=frames}
+  local ai=read_anim(a,char_base)
+  acache[a]={ai=ai,frames=decode_anim(ai)}
  end
+ -- decode title and font from code strings (via RAM copy)
+ local ai=read_anim(1,title_base)
+ acache[a_title]={ai=ai,frames=decode_anim(ai)}
+ ai=read_anim(1,font_base)
+ acache[a_font]={ai=ai,frames=decode_anim(ai)}
 end
 
 function get_frame(a,f)

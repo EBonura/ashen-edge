@@ -458,6 +458,20 @@ def extract_font_frames(font_path, size, chars, threshold=128):
 
 # ── GFX output ──
 
+def bytes_to_p8_str(data):
+    """Encode bytes as a PICO-8 Lua string literal with decimal escapes."""
+    parts = []
+    for b in data:
+        if b == ord('"'):
+            parts.append('\\"')
+        elif b == ord('\\'):
+            parts.append('\\\\')
+        elif 32 <= b <= 126:
+            parts.append(chr(b))
+        else:
+            parts.append(f'\\{b:03d}')
+    return '"' + ''.join(parts) + '"'
+
 def bytes_to_gfx(data):
     row_bytes = 64
     total_rows = 128  # PICO-8 expects exactly 128 rows
@@ -1148,14 +1162,26 @@ def build_cart():
         ("sw_start", sw_start_frames, 16,      19),
         ("sw_idle",  sw_idle_frames,  16,      19),
         ("sw_down",  sw_down_frames,  16,      19),
-        ("title",    title_frames,   128,     128),
-        ("font",     font_frames,    font_cw, font_ch),
     ]
     for ent_name, ent_frames, ent_cw, ent_ch in ent_anim_info:
         block, info = encode_animation(ent_name, ent_frames, ent_cw, ent_ch)
         anim_blocks.append((ent_name, block))
         total_frames += len(ent_frames)
         print(info)
+
+    print("\nEncoding title and font as code strings...")
+    title_block, title_info = encode_animation("title", title_frames, 128, 128)
+    print(title_info)
+    font_block, font_info = encode_animation("font", font_frames, font_cw, font_ch)
+    print(font_info)
+    total_frames += len(title_frames) + len(font_frames)
+    # mini-chunk: [na=1][cell_w=0][cell_h=0][off_lo=0][off_hi=0][block]
+    title_chunk = bytearray([1, 0, 0, 0, 0]) + title_block
+    font_chunk  = bytearray([1, 0, 0, 0, 0]) + font_block
+    title_base_addr = 0x4300
+    font_base_addr  = 0x4300 + len(title_chunk)
+    print(f"  title_chunk: {len(title_chunk)}b  font_chunk: {len(font_chunk)}b")
+    print(f"  title_base=0x{title_base_addr:04x}  font_base=0x{font_base_addr:04x}")
 
     # Rebuild char_chunk with all animations (player + entity)
     num_anims = len(anim_blocks)
@@ -1211,16 +1237,21 @@ def build_cart():
     ent_var_map = {
         "door": "a_door", "sw_start": "a_sst",
         "sw_idle": "a_sid", "sw_down": "a_sdn",
-        "title": "a_title", "font": "a_font",
     }
-    gen_lines.append(f"font_cw={font_cw} font_ch={font_ch}")
-    # font lookup table: char code -> frame index (1-based)
-    font_map_entries = ",".join(f"[{ord(c)}]={i+1}" for i, c in enumerate(FONT_CHARS))
-    gen_lines.append(f"font_map={{{font_map_entries}}}")
     ent_vars = [ent_var_map[name] for name, _, _, _ in ent_anim_info]
     ent_lhs = ",".join(ent_vars)
     ent_rhs = ",".join(str(len(ANIMS) + i + 1) for i in range(len(ent_anim_info)))
     gen_lines.append(f"{ent_lhs}={ent_rhs}")
+    # title and font live in code strings, decoded to free RAM at startup
+    num_main = len(ANIMS) + len(ent_anim_info)
+    gen_lines.append(f"a_title={num_main+1} a_font={num_main+2}")
+    gen_lines.append(f"title_base={title_base_addr} font_base={font_base_addr}")
+    gen_lines.append(f"title_data={bytes_to_p8_str(title_chunk)}")
+    gen_lines.append(f"font_data={bytes_to_p8_str(font_chunk)}")
+    gen_lines.append(f"font_cw={font_cw} font_ch={font_ch}")
+    # font lookup table: char code -> frame index (1-based)
+    font_map_entries = ",".join(f"[{ord(c)}]={i+1}" for i, c in enumerate(FONT_CHARS))
+    gen_lines.append(f"font_map={{{font_map_entries}}}")
 
     # anchor data — player anims only
     anc_parts = []
