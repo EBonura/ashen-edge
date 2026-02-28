@@ -79,12 +79,13 @@ function decode_rle(off,npix,bpp)
  bpp=bpp or 4
  local run_bits=8-bpp
  local run_mask=(1<<run_bits)-1
+ local color_mask=(1<<bpp)-1
  local buf={}
  local idx=1
  while idx<=npix do
   local b=peek(off)
   off+=1
-  local color=b>>run_bits
+  local color=(b>>run_bits)&color_mask
   local r=b&run_mask
   if r==run_mask then
    r=run_mask+1+peek(off)
@@ -143,7 +144,7 @@ function read_anim(a)
  local pal={}
  for i=0,np-1 do
   local b=peek(ab+3+flr(i/2))
-  pal[i+1]=(i%2==0) and (b>>4) or (b&0xf)
+  pal[i+1]=(i%2==0) and ((b>>4)&0xf) or (b&0xf)
  end
  local pal_bytes=flr((np+1)/2)
  -- h = start of enc-specific header fields
