@@ -438,15 +438,17 @@ def extract_font_frames(font_path, size, chars, threshold=128):
     """Render each char as a 1-bit pixel frame. Returns (frames, cell_w, cell_h)."""
     from PIL import ImageDraw as _ID, ImageFont as _IF
     font = _IF.truetype(font_path, size)
-    # Measure cell dimensions
+    ascent, descent = font.getmetrics()
+    # Cell height from font metrics so all glyphs share a common baseline at y=ascent
     cell_w = max(font.getbbox(c)[2] for c in chars if c.strip() or c == ' ')
-    cell_h = max(font.getbbox(c)[3] for c in chars if c.strip() or c == ' ')
+    cell_h = ascent + descent
     frames = []
     for ch in chars:
         cell = Image.new("L", (cell_w, cell_h), 0)
         d = _ID.Draw(cell)
         bb = font.getbbox(ch)
-        d.text((-bb[0], -bb[1]), ch, font=font, fill=255)
+        # Fixed y=0 (top of em square) for all chars → common baseline alignment
+        d.text((-bb[0], 0), ch, font=font, fill=255)
         pixels = []
         for v in cell.getdata():
             pixels.append(7 if v >= threshold else TRANS)
