@@ -85,6 +85,8 @@ sprojs={}
 sp_aspd=split"8,6,5,5,6"
 -- wb anim speeds: idle,move,charge,shoot,fire_dash,wake,damaged,death
 wb_aspd=split"8,5,6,5,4,6,5,6"
+-- hb anim speeds: idle,run,attack,shoot,hit,death
+hb_aspd=split"8,5,5,5,5,6"
 
 -- entity system
 ents={}
@@ -189,13 +191,12 @@ function decode_anim(ai)
   for i=1,npix do d[i]=d[i]^^base[i] end
   frames[f]={d,ai.bx,ai.by,ai.bw,ai.bh}
  end
- if ai.bpp<4 and #ai.pal>0 then
-  for f=1,#frames do
-   local buf=frames[f][1]
-   for i=1,#buf do
-    buf[i]=ai.pal[buf[i]+1] or trans
-   end
+ for f=1,#frames do
+  local buf=frames[f][1]
+  if ai.bpp<4 and #ai.pal>0 then
+   for i=1,#buf do buf[i]=ai.pal[buf[i]+1] or trans end
   end
+  frames[f][1]=chr(unpack(buf))
  end
  return frames
 end
@@ -222,7 +223,12 @@ function cache_anims()
   local idx=a_wbi+a-1
   acache[idx]={ai=ai,frames=decode_anim(ai),cw=wheelbot_cw,ch=wheelbot_ch}
  end
- -- hp bar
+ local hna=peek(hellbot_base)
+ for a=1,hna do
+  ai=read_anim(a,hellbot_base)
+  local idx=a_hbi+a-1
+  acache[idx]={ai=ai,frames=decode_anim(ai),cw=hellbot_cw,ch=hellbot_ch}
+ end
  ai=read_anim(1,hp_base)
  hp_buf=decode_anim(ai)[1][1]
 end
@@ -241,7 +247,7 @@ function draw_hp()
  for y=0,hp_h-1 do
   local wave=sin(y*0.12+tt)*1.5
   for x=0,hp_w-1 do
-   local c=hp_buf[idx]
+   local c=ord(hp_buf,idx)
    if c==0 then
     pset(2+x,2+y,0)
    elseif c==7 then
@@ -266,7 +272,7 @@ function draw_char(a,f,sx,sy,flip,rot)
  local idx=1
  for y=0,bh-1 do
   for x=0,bw-1 do
-   local col=buf[idx]
+   local col=ord(buf,idx)
    if col~=trans then
     local dx,dy
     if flip then
@@ -764,6 +770,16 @@ end
 
 -- -- entity system --
 
+function init_bot(e,a,hp)
+ e.x=e.tx*16+8 e.y=(e.ty+1)*16
+ e.vx=0 e.vy=0 e.mdir=1
+ e.anim=a e.frame=1
+ e.state="sleep" e.anim_t=0
+ e.hp=hp e.inv_t=0 e.atk_cd=0
+ e.grounded=false e.fired=false
+ e.patrol_t=0 e.walk_count=0
+end
+
 function init_ents()
  for e in all(ents) do
   if e.type==1 then
@@ -784,14 +800,8 @@ function init_ents()
    e.atk_cd=0 e.fired=false
    e.inv_t=0 e.move_acc=0
    e.patrol_t=60 e.walk_count=0
-  elseif e.type==4 then
-   e.x=e.tx*16+8 e.y=(e.ty+1)*16
-   e.vx=0 e.vy=0 e.mdir=1
-   e.anim=a_wbi e.frame=1
-   e.state="sleep" e.anim_t=0
-   e.hp=4 e.inv_t=0 e.atk_cd=0
-   e.grounded=false e.fired=false
-   e.patrol_t=0 e.walk_count=0
+  elseif e.type==4 then init_bot(e,a_wbi,4)
+  elseif e.type==5 then init_bot(e,a_hbi,5)
   end
  end
 end
@@ -858,6 +868,13 @@ function check_atk_ents()
    if ax1>e.x-14 and ax0<e.x+14
     and ay1>e.y-24 and ay0<e.y then
     ent_hurt(e,a_wbdt,a_wbd)
+   end
+  elseif e.type==5 and e.hp>0
+   and e.state~="death" and e.state~="sleep"
+   and e.inv_t==0 then
+   if ax1>e.x-15 and ax0<e.x+15
+    and ay1>e.y-28 and ay0<e.y then
+    ent_hurt(e,a_hbd,a_hbh)
    end
   end
  end
@@ -1060,7 +1077,8 @@ end
 
 function update_wheelbot(e)
  local spd=wb_aspd[e.anim-a_wbi+1] or 6
- if e.state=="death" then
+ local s=e.state
+ if s=="death" then
   local t,nf=ent_tick(e,spd)
   if t and e.frame<nf then e.frame+=1 end
   wb_move(e) return
@@ -1078,25 +1096,25 @@ function update_wheelbot(e)
    return true
   end
  end
- if e.state=="sleep" then
+ if s=="sleep" then
   if dist<64 and abs(ddy)<48 then
    e.state="wake" sp_set_anim(e,a_wbwk)
   end
- elseif e.state=="wake" then
+ elseif s=="wake" then
   if t then
    if e.frame<nf then e.frame+=1
    else
     go_idle(e,a_wbi,30)
    end
   end
- elseif e.state=="idle" then
+ elseif s=="idle" then
   if not spot() then
    e.patrol_t-=1
    if e.patrol_t<=0 then
     e.state="move" patrol_start(e,a_wbm)
    end
   end
- elseif e.state=="move" then
+ elseif s=="move" then
   e.vx=e.mdir*0.6
   if t then e.frame=e.frame%nf+1 end
   if not spot() then
@@ -1105,7 +1123,7 @@ function update_wheelbot(e)
     e.vx=0 go_idle(e,a_wbi,60)
    end
   end
- elseif e.state=="charge" then
+ elseif s=="charge" then
   if t then
    if e.frame<nf then e.frame+=1
    else
@@ -1118,7 +1136,7 @@ function update_wheelbot(e)
     end
    end
   end
- elseif e.state=="shoot" then
+ elseif s=="shoot" then
   if t then
    if e.frame==3 and not e.fired then
     e.fired=true
@@ -1129,7 +1147,7 @@ function update_wheelbot(e)
     e.atk_cd=120 go_idle(e,a_wbi,60)
    end
   end
- elseif e.state=="fdash" then
+ elseif s=="fdash" then
   e.vx=e.mdir*3
   if abs(px-e.x)<18 and abs(py+11-e.y+12)<16 then
    hurt_plr()
@@ -1140,11 +1158,93 @@ function update_wheelbot(e)
     e.vx=0 e.atk_cd=120 go_idle(e,a_wbi,60)
    end
   end
- elseif e.state=="hit" then
+ elseif s=="hit" then
   if t then
    if e.frame<nf then e.frame+=1
    else
     go_idle(e,a_wbi,60)
+   end
+  end
+ end
+ wb_move(e)
+end
+
+function update_hellbot(e)
+ local spd=hb_aspd[e.anim-a_hbi+1] or 6
+ local s=e.state
+ if s=="death" then
+  local t,nf=ent_tick(e,spd)
+  if t and e.frame<nf then e.frame+=1 end
+  wb_move(e) return
+ end
+ if e.inv_t>0 then e.inv_t-=1 end
+ if e.atk_cd>0 then e.atk_cd-=1 end
+ local t,nf=ent_tick(e,spd)
+ local ddx=px-e.x
+ local ddy=(py+11)-e.y
+ local dist=abs(ddx)
+ local function spot()
+  if e.atk_cd==0 and dist<90 and abs(ddy)<32 then
+   e.vx=0 e.mdir=ddx>0 and 1 or -1
+   if dist<32 then
+    e.state="attack" sp_set_anim(e,a_hba)
+   elseif dist>56 then
+    e.state="shoot" sp_set_anim(e,a_hbs)
+    e.fired=false
+   else
+    e.state="charge" sp_set_anim(e,a_hbr)
+   end
+   return true
+  end
+ end
+ if s=="sleep" then
+  if dist<72 and abs(ddy)<48 then
+   e.state="idle" sp_set_anim(e,a_hbi)
+  end
+ elseif s=="idle" then
+  if not spot() then
+   e.patrol_t-=1
+   if e.patrol_t<=0 then
+    e.state="run" patrol_start(e,a_hbr)
+   end
+  end
+ elseif s=="run" or s=="charge" then
+  e.vx=e.mdir*(s=="charge" and 1.5 or 0.8)
+  if t then e.frame=e.frame%nf+1 end
+  if s=="charge" then
+   if dist<32 then
+    e.vx=0 e.state="attack" sp_set_anim(e,a_hba)
+   end
+  elseif not spot() then
+   e.patrol_t-=1
+   if e.patrol_t<=0 then
+    e.vx=0 go_idle(e,a_hbi,60)
+   end
+  end
+ elseif s=="attack" or s=="shoot" then
+  if t then
+   if e.frame==3 and not e.fired then
+    e.fired=true
+    if s=="attack" then
+     if dist<28 and abs(ddy)<24 then
+      hurt_plr()
+     end
+    else
+     fire_at(e.x,e.y-14,2)
+    end
+   end
+   if e.frame<nf then e.frame+=1
+   else
+    e.fired=false
+    e.atk_cd=s=="attack" and 60 or 90
+    go_idle(e,a_hbi,30)
+   end
+  end
+ elseif s=="hit" then
+  if t then
+   if e.frame<nf then e.frame+=1
+   else
+    go_idle(e,a_hbi,60)
    end
   end
  end
@@ -1210,6 +1310,8 @@ function update_ents()
    update_spider(e)
   elseif e.type==4 then
    update_wheelbot(e)
+  elseif e.type==5 then
+   update_hellbot(e)
   end
  end
 end
@@ -1226,7 +1328,7 @@ function p8print(str,x,y,col,sp)
     local idx=1
     for dy=0,bh-1 do
      for dx=0,bw-1 do
-      if buf[idx]~=trans then
+      if ord(buf,idx)~=trans then
        pset(cx+bx+dx,y+by+dy,col)
       end
       idx+=1
@@ -1238,16 +1340,22 @@ function p8print(str,x,y,col,sp)
  end
 end
 
+function draw_bot(e,at,cw,ch)
+ if not(e.inv_t>0 and e.inv_t%4<2) then
+  local a,f=e.anim,e.frame
+  local ax=(at[a] and at[a][f]) or cw\2
+  local flip=e.mdir==-1
+  local dx=flip and e.x-(cw-1-ax) or e.x-ax
+  draw_char(a,f,dx-cam_x,e.y-ch-cam_y,flip)
+ end
+end
+
 function draw_ents()
  for e in all(ents) do
   if e.type==4 then
-   if not(e.inv_t>0 and e.inv_t%4<2) then
-    local a,f=e.anim,e.frame
-    local ax=(wb_anc[a] and wb_anc[a][f]) or wheelbot_cw\2
-    local flip=e.mdir==-1
-    local dx=flip and e.x-(wheelbot_cw-1-ax) or e.x-ax
-    draw_char(a,f,dx-cam_x,e.y-wheelbot_ch-cam_y,flip)
-   end
+   draw_bot(e,wb_anc,wheelbot_cw,wheelbot_ch)
+  elseif e.type==5 then
+   draw_bot(e,hb_anc,hellbot_cw,hellbot_ch)
   elseif e.type==3 then
    local sx=e.x-cam_x
    local sy=e.y-cam_y
@@ -1529,7 +1637,7 @@ function draw_title()
  local idx=1
  for y=0,bh-1 do
   for x=0,bw-1 do
-   pset(bx+x,by+y,buf[idx])
+   pset(bx+x,by+y,ord(buf,idx))
    idx+=1
   end
  end

@@ -55,6 +55,16 @@ WHEELBOT_ANIMS = [
     ("wb_damaged",  "damaged 112x26.png",   None),
     ("wb_death",    "death 112x26.png",     None),
 ]
+HELLBOT_DIR = os.path.expanduser("~/Downloads/DARK Edition/Sprites/Hell Bot DARK")
+HELLBOT_W, HELLBOT_H = 92, 36
+HELLBOT_ANIMS = [
+    ("hb_idle",   "idle 92x36.png",   None),
+    ("hb_run",    "run 92x36.png",    None),
+    ("hb_attack", "attack 92x36.png", None),
+    ("hb_shoot",  "shoot 92x36.png",  None),
+    ("hb_hit",    "hit 92x36.png",    None),
+    ("hb_death",  "death 92x36.png",  None),
+]
 FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!.,:-'?/()"
 TILE_SIZE = 16
 TILESET_COLS = 18
@@ -765,7 +775,8 @@ def encode_type4(name, frames_pixels, fw, fh, bpp=4, palette=None):
 def encode_animation(name, frames_pixels, fw, fh, bpp='auto', palette=None):
     if bpp == 'auto':
         bpp = min_bpp_for_frames(frames_pixels)
-        palette = build_palette(frames_pixels, bpp) if bpp < 4 else None
+    if bpp < 4 and palette is None:
+        palette = build_palette(frames_pixels, bpp)
     n = len(frames_pixels)
     block, info_str = encode_type4(name, frames_pixels, fw, fh, bpp, palette)
     bpp_tag = f" [{bpp}bpp]"
@@ -1649,6 +1660,46 @@ def build_cart():
         wb_anc_parts.append(",".join(str(c) for c in centers))
     wb_anc_str = "|".join(wb_anc_parts)
 
+    # ── Hell Bot enemy ──
+    print("\nExtracting hell bot frames...")
+    hb_anim_blocks = []
+    hb_all_frames = {}
+    for hb_name, hb_file, hb_nf in HELLBOT_ANIMS:
+        frames = extract_frames_custom(hb_file, HELLBOT_DIR, HELLBOT_W, HELLBOT_H, hb_nf)
+        # merge color 1 (dark_blue) -> 5 (dark_grey) for 2bpp
+        frames = [[5 if c == 1 else c for c in f] for f in frames]
+        hb_all_frames[hb_name] = frames
+        block, info = encode_animation(hb_name, frames, HELLBOT_W, HELLBOT_H, bpp=2)
+        hb_anim_blocks.append((hb_name, block))
+        total_frames += len(frames)
+        print(info)
+    # pack into a multi-anim chunk
+    hb_na = len(hb_anim_blocks)
+    hb_offsets = []
+    hb_data = bytearray()
+    for _, blk in hb_anim_blocks:
+        hb_offsets.append(len(hb_data))
+        hb_data.extend(blk)
+    hellbot_chunk = bytearray()
+    hellbot_chunk.append(hb_na)
+    hellbot_chunk.append(HELLBOT_W)
+    hellbot_chunk.append(HELLBOT_H)
+    for off in hb_offsets:
+        hellbot_chunk.append(off & 0xFF)
+        hellbot_chunk.append((off >> 8) & 0xFF)
+    hellbot_chunk.extend(hb_data)
+    print(f"  hellbot_chunk: {len(hellbot_chunk)}b")
+    # per-frame horizontal center anchors
+    hb_anc_parts = []
+    for hb_name, _, _ in HELLBOT_ANIMS:
+        frames = hb_all_frames[hb_name]
+        centers = []
+        for f in frames:
+            xs = [idx % HELLBOT_W for idx, c in enumerate(f) if c != TRANS]
+            centers.append((min(xs) + max(xs)) // 2 if xs else HELLBOT_W // 2)
+        hb_anc_parts.append(",".join(str(c) for c in centers))
+    hb_anc_str = "|".join(hb_anc_parts)
+
     # ── HP bar UI ──
     print("\nEncoding HP bar...")
     hp_img = Image.open(os.path.join(DIR, "hp_bar_preview.png")).convert('RGBA')
@@ -1685,7 +1736,7 @@ def build_cart():
         char_chunk.append((off >> 8) & 0xFF)
     char_chunk.extend(anim_data)
 
-    # GFX: char_chunk + spider + wheelbot + hp (title+font moved to __sfx__)
+    # GFX: char_chunk + spider + wheelbot + hellbot + hp (title+font moved to __sfx__)
     gfx_buf = bytearray(8192)
     gfx_buf[:len(char_chunk)] = char_chunk
     gfx_end = len(char_chunk)
@@ -1695,6 +1746,9 @@ def build_cart():
     wheelbot_base_addr = gfx_end
     gfx_buf[gfx_end:gfx_end+len(wheelbot_chunk)] = wheelbot_chunk
     gfx_end += len(wheelbot_chunk)
+    hellbot_base_addr = gfx_end
+    gfx_buf[gfx_end:gfx_end+len(hellbot_chunk)] = hellbot_chunk
+    gfx_end += len(hellbot_chunk)
     hp_base_addr = gfx_end
     gfx_buf[gfx_end:gfx_end+len(hp_chunk)] = hp_chunk
     gfx_end += len(hp_chunk)
@@ -1711,7 +1765,7 @@ def build_cart():
     sfx_buf[sfx_data_offset:sfx_data_offset+len(sfx_data)] = sfx_data
     sfx_data_used = len(sfx_data)
 
-    print(f"  spider_base=0x{spider_base_addr:04x}  wheelbot_base=0x{wheelbot_base_addr:04x}")
+    print(f"  spider_base=0x{spider_base_addr:04x}  wheelbot_base=0x{wheelbot_base_addr:04x}  hellbot_base=0x{hellbot_base_addr:04x}")
     print(f"  hp_base=0x{hp_base_addr:04x}")
     print(f"  title_base=0x{title_base_addr:04x}  font_base=0x{font_base_addr:04x} (in __sfx__ slots {sfx_first_slot}-63, {sfx_slots_used} slots)")
 
@@ -1786,6 +1840,20 @@ def build_cart():
     gen_lines.append(f"wheelbot_base={wheelbot_base_addr} wheelbot_cw={WHEELBOT_W} wheelbot_ch={WHEELBOT_H}")
     gen_lines.append(f'_wa=split("{wb_anc_str}","|",false)')
     gen_lines.append("wb_anc={} for i=1,#_wa do wb_anc[a_wbi+i-1]=split(_wa[i]) end")
+    # hell bot — in __gfx__, multi-anim chunk at hellbot_base
+    hb_var_map = {
+        "hb_idle": "a_hbi", "hb_run": "a_hbr",
+        "hb_attack": "a_hba", "hb_shoot": "a_hbs",
+        "hb_hit": "a_hbh", "hb_death": "a_hbd",
+    }
+    hb_vars = [hb_var_map[name] for name, _, _ in HELLBOT_ANIMS]
+    hb_lhs = ",".join(hb_vars)
+    hb_base_idx = wb_base_idx + len(WHEELBOT_ANIMS)
+    hb_rhs = ",".join(str(hb_base_idx + i) for i in range(len(HELLBOT_ANIMS)))
+    gen_lines.append(f'{hb_lhs}=unpack(split"{hb_rhs}")')
+    gen_lines.append(f"hellbot_base={hellbot_base_addr} hellbot_cw={HELLBOT_W} hellbot_ch={HELLBOT_H}")
+    gen_lines.append(f'_ha=split("{hb_anc_str}","|",false)')
+    gen_lines.append("hb_anc={} for i=1,#_ha do hb_anc[a_hbi+i-1]=split(_ha[i]) end")
     # hp bar
     gen_lines.append(f"hp_base={hp_base_addr} hp_w={hp_w} hp_h={hp_h}")
     # font lookup table: char code -> frame index (1-based)
