@@ -504,11 +504,29 @@ def encode_type2(name, frames_pixels, fw, fh, bpp=4, palette=None):
 
 # ── Type 3: Referenced XOR + RLE (unified single-decoder) ──
 
+def _pack_bits(pixels):
+    """Pack 1bpp pixels into bytes (MSB first), trim trailing zero bytes."""
+    out = bytearray()
+    bits = 0; bit_count = 0
+    for p in pixels:
+        bits = (bits << 1) | (p & 1)
+        bit_count += 1
+        if bit_count == 8:
+            out.append(bits)
+            bits = 0; bit_count = 0
+    if bit_count > 0:
+        out.append(bits << (8 - bit_count))
+    # Trim trailing zeros
+    i = len(out) - 1
+    while i >= 0 and out[i] == 0:
+        i -= 1
+    return out[:i+1]
+
+
 def encode_type3(name, frames_pixels, fw, fh, bpp=4, palette=None):
-    """XOR each frame with best matching previous frame, then RLE.
-    Frame 0 XORs with zeros (plain RLE). Each frame stores a 1-byte
-    ref index: which already-decoded frame to XOR against.
-    ref=255 means XOR with zeros (self-contained).
+    """XOR each frame with best matching previous frame, then RLE (or bitpack
+    for 1bpp). Each frame stores a 1-byte ref index: which already-decoded
+    frame to XOR against. ref=255 means XOR with zeros (self-contained).
     Uses animation-wide bbox."""
     n = len(frames_pixels)
     bx, by, bw, bh = get_bbox(frames_pixels, fw, fh)
@@ -517,27 +535,33 @@ def encode_type3(name, frames_pixels, fw, fh, bpp=4, palette=None):
         cropped = [quantize_pixels(f, palette) for f in cropped]
 
     npix = bw * bh
+    use_bitpack = (bpp == 1)
 
-    # For each frame, pick the ref that minimizes XOR-RLE size
+    def _encode_frame(pixels):
+        if use_bitpack:
+            return _pack_bits(pixels)
+        return ext_nibble_rle_encode(pixels, bpp)
+
+    # For each frame, pick the ref that minimizes encoded size
     refs = []
-    frame_rles = []
+    frame_data = []
     for i in range(n):
         best_ref = 255  # 255 = XOR with zeros
-        best_rle = ext_nibble_rle_encode(cropped[i], bpp)
+        best_enc = _encode_frame(cropped[i])
         # Try all previous frames as reference
         for r in range(i):
             xor_diff = [cropped[i][j] ^ cropped[r][j] for j in range(npix)]
-            rle = ext_nibble_rle_encode(xor_diff, bpp)
-            if len(rle) < len(best_rle):
-                best_rle = rle
+            enc = _encode_frame(xor_diff)
+            if len(enc) < len(best_enc):
+                best_enc = enc
                 best_ref = r
         refs.append(best_ref)
-        frame_rles.append(best_rle)
+        frame_data.append(best_enc)
 
     # Build block: header + refs + frame offsets + frame data
     block = bytearray()
     block.append(n)
-    block.append(3)  # type 3 = Referenced XOR+RLE
+    block.append(3)  # type 3 = Referenced XOR
     block.append(bpp)
     if bpp < 4 and palette:
         block.extend(pack_palette(palette))
@@ -550,17 +574,18 @@ def encode_type3(name, frames_pixels, fw, fh, bpp=4, palette=None):
         block.append(refs[r])
     # Frame offset table (2 bytes each) — cumulative offsets
     offset = 0
-    for rle in frame_rles:
+    for d in frame_data:
         block.append(offset & 0xFF)
         block.append((offset >> 8) & 0xFF)
-        offset += len(rle)
+        offset += len(d)
     # Frame data
-    for rle in frame_rles:
-        block.extend(rle)
+    for d in frame_data:
+        block.extend(d)
 
-    total = sum(len(r) for r in frame_rles)
+    total = sum(len(d) for d in frame_data)
     ref_summary = sum(1 for r in refs if r != 255)
-    return block, f"RX {bw}x{bh} data={total}b refs={ref_summary}/{n}"
+    tag = "BP" if use_bitpack else "RX"
+    return block, f"{tag} {bw}x{bh} data={total}b refs={ref_summary}/{n}"
 
 
 # ── Pick best encoding per animation ──

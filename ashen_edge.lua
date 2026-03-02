@@ -117,6 +117,16 @@ function decode_rle(off,npix,bpp)
  return buf,off
 end
 
+function decode_bits(off,npix)
+ local buf={}
+ local b,bi=0,8
+ for i=1,npix do
+  if bi>7 then b=peek(off) off+=1 bi=0 end
+  buf[i]=(b>>7-bi)&1
+  bi+=1
+ end
+ return buf
+end
 
 function read_anim(a,cb)
  cb=cb or char_base
@@ -160,7 +170,7 @@ function decode_anim(ai)
  for f=1,ai.nf do
   local ref=peek(ai.ref_off+f-1)
   local foff=pk2(ai.fo_off+(f-1)*2)
-  local d=decode_rle(ai.data_off+foff,npix,ai.bpp)
+  local d=ai.bpp==1 and decode_bits(ai.data_off+foff,npix) or decode_rle(ai.data_off+foff,npix,ai.bpp)
   local base=ref==255 and zeros or frames[ref+1][1]
   for i=1,npix do d[i]=d[i]^^base[i] end
   frames[f]={d,ai.bx,ai.by,ai.bw,ai.bh}
