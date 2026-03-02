@@ -42,6 +42,8 @@ sf_dy=split"0,-1,0,1"  -- canonical forward dy
 sd_dx=split"0,1,0,-1"  -- surface "down" dx
 sd_dy=split"1,0,-1,0"  -- surface "down" dy
 sp_rot=split"0,3,2,1"  -- draw rotation per surface
+snpx=split"8,16,8,-1"  -- snap probe x offset per surface
+snpy=split"16,8,-1,8"  -- snap probe y offset per surface
 
 -- collision box (relative to px,py)
 -- box: x from px-3 to px+3, y from py+3 to py+19
@@ -140,31 +142,23 @@ end
 function read_anim(a,cb)
  cb=cb or char_base
  local na=peek(cb)
- local aoff=pk2(cb+3+(a-1)*2)
- local ab=cb+3+na*2+aoff
+ local ab=cb+3+na*2+pk2(cb+3+(a-1)*2)
  local nf=peek(ab)
- -- skip enc byte (ab+1)
  local bpp=peek(ab+2)
  local np=bpp<4 and (1<<bpp) or 0
  local pal={}
  for i=0,np-1 do
   local b=peek(ab+3+i\2)
-  if i%2==0 then pal[i+1]=(b>>4)&0xf else pal[i+1]=b&0xf end
+  pal[i+1]=i%2==0 and (b>>4)&0xf or b&0xf
  end
- local pal_bytes=flr((np+1)/2)
- local h=ab+3+pal_bytes
- local bx=peek(h)
- local by=peek(h+1)
- local bw=peek(h+2)
- local bh=peek(h+3)
- local ref_off=h+4
- local fo_off=ref_off+nf
- local data_off=fo_off+nf*2
+ local h=ab+3+np\2
+ local bx,by,bw,bh=peek(h,4)
+ local ro=h+4
  return {
   nf=nf,bpp=bpp,pal=pal,
   bx=bx,by=by,bw=bw,bh=bh,
-  ref_off=ref_off,fo_off=fo_off,
-  data_off=data_off
+  ref_off=ro,fo_off=ro+nf,
+  data_off=ro+nf*3
  }
 end
 
@@ -332,7 +326,7 @@ function load_tiles()
   end
   return
  end
- local nt,nl=peek(map_base),peek(map_base+1)
+ local nt,nl=peek(map_base,2)
  local p=map_base+12+nl
  local tbpp=peek(p)
  local tnp=1<<tbpp
@@ -348,9 +342,7 @@ function load_tiles()
   for i=1,sz do mdat[L][i]=0 end
   local m=peek(map_base+11+L)
   if m==1 then
-   local tw,th=peek(p),peek(p+1)
-   local dx,dy=peek(p+2),peek(p+3)
-   local rw,rh=peek(p+4),peek(p+5)
+   local tw,th,dx,dy,rw,rh=peek(p,6)
    for ry=0,rh-1 do
     for rx=0,rw-1 do
      mdat[L][(dy+ry)*lvl_w+dx+rx+1]=peek(p+6+(ry%th)*tw+(rx%tw))
@@ -847,31 +839,27 @@ function check_atk_ents()
    and e.state~="death" and e.inv_t==0 then
    if ax1>e.x and ax0<e.x+16
     and ay1>e.y and ay0<e.y+16 then
-    e.hp-=1
-    e.inv_t=20
-    if e.hp<=0 then
-     e.state="death"
-     sp_set_anim(e,a_spd)
-    else
-     e.state="hit"
-     sp_set_anim(e,a_sph)
-    end
+    ent_hurt(e,a_spd,a_sph)
    end
   elseif e.type==4 and e.hp>0
    and e.state~="death" and e.state~="sleep"
    and e.state~="fdash" and e.inv_t==0 then
    if ax1>e.x-14 and ax0<e.x+14
     and ay1>e.y-24 and ay0<e.y then
-    e.hp-=1 e.inv_t=20
-    if e.hp<=0 then
-     e.state="death" e.vx=0
-     sp_set_anim(e,a_wbdt)
-    else
-     e.state="hit" e.vx=0
-     sp_set_anim(e,a_wbd)
-    end
+    ent_hurt(e,a_wbdt,a_wbd)
    end
   end
+ end
+end
+
+function ent_hurt(e,da,ha)
+ e.hp-=1 e.inv_t=20
+ if e.hp<=0 then
+  e.state="death" e.vx=0
+  sp_set_anim(e,da)
+ else
+  e.state="hit" e.vx=0
+  sp_set_anim(e,ha)
  end
 end
 
@@ -894,6 +882,13 @@ function go_idle(e,a,pt)
  e.patrol_t=pt
 end
 
+function patrol_start(e,a)
+ e.walk_count+=1
+ if e.walk_count%2==0 then e.mdir=-e.mdir end
+ e.patrol_t=120
+ sp_set_anim(e,a)
+end
+
 -- probe: check two tile_solid points
 -- along an edge in direction dx,dy
 function sp_probe(x,y,dx,dy)
@@ -911,26 +906,12 @@ end
 -- snap spider feet to nearest
 -- solid tile on current surface
 function sp_snap(e)
- if e.surf==0 then
-  local ty=flr((e.y+16)/16)
-  if tile_solid(flr((e.x+8)/16),ty) then
-   e.y=ty*16-16
-  end
- elseif e.surf==1 then
-  local tx=flr((e.x+16)/16)
-  if tile_solid(tx,flr((e.y+8)/16)) then
-   e.x=tx*16-16
-  end
- elseif e.surf==2 then
-  local ty=flr((e.y-1)/16)
-  if tile_solid(flr((e.x+8)/16),ty) then
-   e.y=(ty+1)*16
-  end
- else
-  local tx=flr((e.x-1)/16)
-  if tile_solid(tx,flr((e.y+8)/16)) then
-   e.x=(tx+1)*16
-  end
+ local s=e.surf+1
+ local dx,dy=sd_dx[s],sd_dy[s]
+ local tx,ty=flr((e.x+snpx[s])/16),flr((e.y+snpy[s])/16)
+ if tile_solid(tx,ty) then
+  if dx~=0 then e.x=(tx-sgn(dx))*16
+  else e.y=(ty-sgn(dy))*16 end
  end
 end
 
@@ -1057,12 +1038,7 @@ function update_spider(e)
  e.patrol_t-=1
  if e.state=="idle" then
   if e.patrol_t<=0 then
-   e.walk_count+=1
-   if e.walk_count%2==0 then
-    e.mdir=-e.mdir
-   end
-   e.patrol_t=120
-   e.state="walk" sp_set_anim(e,a_spw)
+   e.state="walk" patrol_start(e,a_spw)
   end
  elseif e.state=="walk" then
   if e.patrol_t<=0 then
@@ -1084,6 +1060,13 @@ function update_wheelbot(e)
  local ddx=px-e.x
  local ddy=(py+11)-e.y
  local dist=abs(ddx)
+ local function spot()
+  if e.atk_cd==0 and dist<80 and abs(ddy)<32 then
+   e.vx=0 e.mdir=ddx>0 and 1 or -1
+   e.state="charge" sp_set_anim(e,a_wbc)
+   return true
+  end
+ end
  if e.state=="sleep" then
   if dist<64 and abs(ddy)<48 then
    e.state="wake" sp_set_anim(e,a_wbwk)
@@ -1096,25 +1079,16 @@ function update_wheelbot(e)
    end
   end
  elseif e.state=="idle" then
-  if e.atk_cd==0 and dist<80 and abs(ddy)<32 then
-   e.mdir=ddx>0 and 1 or -1
-   e.state="charge" sp_set_anim(e,a_wbc)
-  else
+  if not spot() then
    e.patrol_t-=1
    if e.patrol_t<=0 then
-    e.walk_count+=1
-    if e.walk_count%2==0 then e.mdir=-e.mdir end
-    e.patrol_t=120
-    e.state="move" sp_set_anim(e,a_wbm)
+    e.state="move" patrol_start(e,a_wbm)
    end
   end
  elseif e.state=="move" then
   e.vx=e.mdir*0.6
   if t then e.frame=e.frame%nf+1 end
-  if e.atk_cd==0 and dist<80 and abs(ddy)<32 then
-   e.vx=0 e.mdir=ddx>0 and 1 or -1
-   e.state="charge" sp_set_anim(e,a_wbc)
-  else
+  if not spot() then
    e.patrol_t-=1
    if e.patrol_t<=0 then
     e.vx=0 go_idle(e,a_wbi,60)
