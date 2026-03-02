@@ -211,6 +211,7 @@ function cache_anims()
  la(wheelbot_base,a_wbi,wheelbot_cw,wheelbot_ch)
  la(hellbot_base,a_hbi,hellbot_cw,hellbot_ch)
  la(portal_base,a_ptl,portal_cw,portal_ch)
+ la(box_base,a_box,box_s,box_s)
  local ai=read_anim(1,hp_base)
  hp_buf=decode_anim(ai)[1][1]
 end
@@ -802,7 +803,7 @@ function init_ents()
   elseif e.type==4 then init_bot(e,a_wbi,4)
   elseif e.type==5 then init_bot(e,a_hbi,5)
   elseif e.type==6 then
-   e.x=e.tx*16+8 e.y=(e.ty+1)*16
+   e.x=e.tx*16+8 e.y=(e.ty+2)*16
    e.anim=a_ptl e.frame=1
    e.anim_t=0 e.active=false
   end
@@ -1269,8 +1270,32 @@ function p8print(str,x,y,col,sp)
     end
    end
   end
-  cx+=font_cw+sp
+  cx+=(f and font_adv[f] or font_cw)+sp
  end
+end
+
+function text_box(txt,cx,cy,col,sp)
+ sp=sp or 0
+ local tw=twidth(txt,sp)
+ local pd=8
+ local bh=font_ch+pd*2
+ local bx,by=cx-tw\2-pd,cy-bh\2
+ local bw=tw+pd*2
+ local s=box_s
+ rectfill(bx+3,by+3,bx+bw-4,by+bh-4,0)
+ draw_char(a_box,1,bx,by)
+ draw_char(a_box,1,bx+bw-s,by,true)
+ draw_char(a_box,1,bx,by+bh-s,true,2)
+ draw_char(a_box,1,bx+bw-s,by+bh-s,false,2)
+ for v in all(split"0,2,5") do
+  line(bx+v,by+s,bx+v,by+bh-s-1,7)
+  line(bx+bw-1-v,by+s,bx+bw-1-v,by+bh-s-1,7)
+ end
+ for h in all(split"2,4") do
+  line(bx+s,by+h,bx+bw-s-1,by+h,7)
+  line(bx+s,by+bh-1-h,bx+bw-s-1,by+bh-1-h,7)
+ end
+ p8print(txt,cx-tw\2,by+pd,col,sp)
 end
 
 function draw_bot(e,at,cw,ch)
@@ -1553,18 +1578,22 @@ function _update60()
  tick_anim()
 end
 
+function twidth(str,sp)
+ sp=sp or 0
+ local w=0
+ for i=1,#str do
+  local f=font_map[ord(sub(str,i,i))]
+  w+=(f and font_adv[f] or font_cw)+sp
+ end
+ return w
+end
+
 function draw_title()
  cls(0)
  draw_char(a_title,1,0,0)
- -- title text (top, red, tight spacing)
- local t1="Ashen Edge"
- local tw=#t1*font_cw+(#t1-1)*-3
- p8print(t1,64-tw\2,10,8,-3)
- -- blinking prompt
+ text_box("Ashen Edge",64,20,8)
  if (time()*2)%2<1 then
-  local t2="Press X"
-  local pw=#t2*font_cw+(#t2-1)*-3
-  p8print(t2,64-pw\2,108,6,-3)
+  text_box("Press X",64,112,6)
  end
 end
 
@@ -1576,9 +1605,9 @@ function _draw()
  end
  if gs==2 then
   cls(0)
-  p8print("you died",30,50,8,-3)
+  text_box("you died",64,46,8)
   if fade_d==0 and (time()*2)%2<1 then
-   p8print("press x",34,70,6,-3)
+   text_box("press x",64,82,6)
   end
   apply_fade(fade_v)
   return

@@ -66,6 +66,8 @@ HELLBOT_ANIMS = [
     ("hb_hit",    "hit 92x36.png",    None),
     ("hb_death",  "death 92x36.png",  None),
 ]
+BOX_SRC = os.path.expanduser("~/Desktop/Aseprite/border test.png")
+BOX_S = 12  # corner sprite size (square for rotation-based flipping)
 PORTAL_DIR = os.path.expanduser("~/Downloads/DARK Edition/Animated objects/Portal")
 PORTAL_SRC_W, PORTAL_SRC_H = 28, 41
 PORTAL_CROP_Y = 30  # top rows to skip (all transparent)
@@ -791,7 +793,7 @@ def encode_animation(name, frames_pixels, fw, fh, bpp='auto', palette=None):
 
 
 def extract_font_frames(font_path, size, chars, threshold=128):
-    """Render each char as a 1-bit pixel frame. Returns (frames, cell_w, cell_h)."""
+    """Render each char as a 1-bit pixel frame. Returns (frames, cell_w, cell_h, advances)."""
     from PIL import ImageDraw as _ID, ImageFont as _IF
     font = _IF.truetype(font_path, size)
     ascent, descent = font.getmetrics()
@@ -799,6 +801,7 @@ def extract_font_frames(font_path, size, chars, threshold=128):
     cell_w = max(font.getbbox(c)[2] for c in chars if c.strip() or c == ' ')
     cell_h = ascent + descent
     frames = []
+    advances = []
     for ch in chars:
         cell = Image.new("L", (cell_w, cell_h), 0)
         d = _ID.Draw(cell)
@@ -806,10 +809,18 @@ def extract_font_frames(font_path, size, chars, threshold=128):
         # Fixed y=0 (top of em square) for all chars → common baseline alignment
         d.text((-bb[0], 0), ch, font=font, fill=255)
         pixels = []
-        for v in cell.getdata():
-            pixels.append(7 if v >= threshold else TRANS)
+        max_x = 0
+        for y in range(cell_h):
+            for x in range(cell_w):
+                v = cell.getpixel((x, y))
+                if v >= threshold:
+                    pixels.append(7)
+                    max_x = max(max_x, x)
+                else:
+                    pixels.append(TRANS)
         frames.append(pixels)
-    return frames, cell_w, cell_h
+        advances.append(max_x + 2)  # ink right edge + 1px padding
+    return frames, cell_w, cell_h, advances
 
 
 # ── GFX output ──
@@ -1629,7 +1640,7 @@ def build_cart():
     print(f"    title: 1 frame from {os.path.basename(TITLE_PNG)}")
 
     print("\nExtracting font frames...")
-    font_frames, font_cw, font_ch = extract_font_frames(ALKHEMIKAL_TTF, 16, FONT_CHARS)
+    font_frames, font_cw, font_ch, font_adv = extract_font_frames(ALKHEMIKAL_TTF, 16, FONT_CHARS)
     print(f"    alkhemikal: {len(font_frames)} chars, cell {font_cw}x{font_ch}")
 
     print("\nCompressing entity animations...")
@@ -1805,6 +1816,35 @@ def build_cart():
     portal_chunk.extend(ptl_block)
     print(f"  portal_chunk: {len(portal_chunk)}b")
 
+    # ── Box corner (for text_box UI) ──
+    print("\nExtracting box corner...")
+    box_img = Image.open(BOX_SRC).convert("RGBA")
+    box_pixels = []
+    for y in range(BOX_S):
+        for x in range(BOX_S):
+            if y < box_img.height and x < box_img.width:
+                r, g, b, a = box_img.getpixel((x, y))
+                if a == 0:
+                    box_pixels.append(TRANS)
+                elif r > 200:
+                    box_pixels.append(7)   # white lines
+                elif r > 100:
+                    box_pixels.append(5)   # grey accents
+                else:
+                    box_pixels.append(0)   # dark fill
+            else:
+                box_pixels.append(TRANS)
+    box_block, box_info = encode_animation("box_corner", [box_pixels], BOX_S, BOX_S, bpp=2, palette=[TRANS, 0, 7, 5])
+    print(box_info)
+    box_chunk = bytearray()
+    box_chunk.append(1)  # 1 anim
+    box_chunk.append(BOX_S)
+    box_chunk.append(BOX_S)
+    box_chunk.append(0)
+    box_chunk.append(0)
+    box_chunk.extend(box_block)
+    print(f"  box_chunk: {len(box_chunk)}b")
+
     # ── HP bar UI ──
     print("\nEncoding HP bar...")
     hp_img = Image.open(os.path.join(DIR, "hp_bar_preview.png")).convert('RGBA')
@@ -1857,6 +1897,9 @@ def build_cart():
     portal_base_addr = gfx_end
     gfx_buf[gfx_end:gfx_end+len(portal_chunk)] = portal_chunk
     gfx_end += len(portal_chunk)
+    box_base_addr = gfx_end
+    gfx_buf[gfx_end:gfx_end+len(box_chunk)] = box_chunk
+    gfx_end += len(box_chunk)
     hp_base_addr = gfx_end
     gfx_buf[gfx_end:gfx_end+len(hp_chunk)] = hp_chunk
     gfx_end += len(hp_chunk)
@@ -1948,6 +1991,8 @@ def build_cart():
     gen_lines.append(f"a_title={num_main+1} a_font={num_main+2}")
     gen_lines.append(f"title_base={title_base_addr} font_base={font_base_addr}")
     gen_lines.append(f"font_cw={font_cw} font_ch={font_ch}")
+    adv_str = ",".join(str(a) for a in font_adv)
+    gen_lines.append(f'font_adv=split"{adv_str}"')
     # spider — code string, multi-anim chunk at spider_base
     sp_var_map = {
         "sp_idle": "a_spi", "sp_walk": "a_spw",
@@ -1994,6 +2039,10 @@ def build_cart():
     ptl_base_idx = hb_base_idx + len(HELLBOT_ANIMS)
     gen_lines.append(f"a_ptl={ptl_base_idx}")
     gen_lines.append(f"portal_base={portal_base_addr} portal_cw={PORTAL_W} portal_ch={PORTAL_H}")
+    # box corner UI
+    box_base_idx = ptl_base_idx + 1
+    gen_lines.append(f"a_box={box_base_idx}")
+    gen_lines.append(f"box_base={box_base_addr} box_s={BOX_S}")
     # unified aspd table — indexed by anim constant directly
     plr_speeds = [6,5,5,5,5,2,6,6,4,6]  # idle,run,jump,fall,hit,land,atk1,xslice,sweep,death
     ent_speeds = [6,6,6,8]  # door,sw_start,sw_idle,sw_down
@@ -2001,7 +2050,7 @@ def build_cart():
     wb_speeds  = [8,5,6,5,4,6,5,6]  # wheelbot: idle,move,charge,shoot,fdash,wake,damaged,death
     hb_speeds  = [8,5,5,5,5,6]  # hellbot: idle,run,attack,shoot,hit,death
     aspd = plr_speeds + ent_speeds + [30, 0]  # title=30, font=0
-    aspd += sp_speeds + wb_speeds + hb_speeds + [6]  # portal=6
+    aspd += sp_speeds + wb_speeds + hb_speeds + [6, 0]  # portal=6, box=0
     aspd_str = ",".join(str(v) for v in aspd)
     gen_lines.append(f'aspd=split"{aspd_str}"')
     # hp bar
