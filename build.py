@@ -1650,7 +1650,7 @@ def build_cart():
     anim_vars = [anim_var_map[name] for name, _, _ in ANIMS]
     lhs = ",".join(anim_vars)
     rhs = ",".join(str(i+1) for i in range(len(ANIMS)))
-    gen_lines.append(f"{lhs}={rhs}")
+    gen_lines.append(f'{lhs}=unpack(split"{rhs}")')
 
     # entity anim indices
     ent_var_map = {
@@ -1660,7 +1660,7 @@ def build_cart():
     ent_vars = [ent_var_map[name] for name, _, _, _ in ent_anim_info]
     ent_lhs = ",".join(ent_vars)
     ent_rhs = ",".join(str(len(ANIMS) + i + 1) for i in range(len(ent_anim_info)))
-    gen_lines.append(f"{ent_lhs}={ent_rhs}")
+    gen_lines.append(f'{ent_lhs}=unpack(split"{ent_rhs}")')
     # title and font in __gfx__ alongside player/entity anims
     num_main = len(ANIMS) + len(ent_anim_info)
     gen_lines.append(f"a_title={num_main+1} a_font={num_main+2}")
@@ -1675,7 +1675,7 @@ def build_cart():
     sp_lhs = ",".join(sp_vars)
     sp_base_idx = num_main + 3  # after a_title, a_font
     sp_rhs = ",".join(str(sp_base_idx + i) for i in range(len(SPIDER_ANIMS)))
-    gen_lines.append(f"{sp_lhs}={sp_rhs}")
+    gen_lines.append(f'{sp_lhs}=unpack(split"{sp_rhs}")')
     gen_lines.append(f"spider_base={spider_base_addr} spider_cw={SPIDER_W} spider_ch={SPIDER_H}")
     gen_lines.append(f'_sa=split("{sp_anc_str}","|",false)')
     gen_lines.append("sp_anc={} for i=1,#_sa do sp_anc[a_spi+i-1]=split(_sa[i]) end")
@@ -1690,13 +1690,16 @@ def build_cart():
     wb_lhs = ",".join(wb_vars)
     wb_base_idx = sp_base_idx + len(SPIDER_ANIMS)
     wb_rhs = ",".join(str(wb_base_idx + i) for i in range(len(WHEELBOT_ANIMS)))
-    gen_lines.append(f"{wb_lhs}={wb_rhs}")
+    gen_lines.append(f'{wb_lhs}=unpack(split"{wb_rhs}")')
     gen_lines.append(f"wheelbot_base={wheelbot_base_addr} wheelbot_cw={WHEELBOT_W} wheelbot_ch={WHEELBOT_H}")
     gen_lines.append(f'_wa=split("{wb_anc_str}","|",false)')
     gen_lines.append("wb_anc={} for i=1,#_wa do wb_anc[a_wbi+i-1]=split(_wa[i]) end")
     # font lookup table: char code -> frame index (1-based)
-    font_map_entries = ",".join(f"[{ord(c)}]={i+1}" for i, c in enumerate(FONT_CHARS))
-    gen_lines.append(f"font_map={{{font_map_entries}}}")
+    # font_map: build from character string (saves ~270 tokens vs explicit table)
+    # Escape ' inside the Lua string since we use single quotes
+    fc_escaped = FONT_CHARS.replace("'", "\\'")
+    gen_lines.append(f"_fc='{fc_escaped}'")
+    gen_lines.append("font_map={} for i=1,#_fc do font_map[ord(sub(_fc,i,i))]=i end")
 
     # anchor data — player anims only
     anc_parts = []

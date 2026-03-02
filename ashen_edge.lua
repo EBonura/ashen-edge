@@ -459,7 +459,7 @@ end
 
 function tile_solid(tx,ty)
  -- flag bit 0 = solid
- if band(tile_flag(tx,ty),1)>0 then
+ if tile_flag(tx,ty)&1>0 then
   return true
  end
  return ent_solid(tx,ty)
@@ -467,7 +467,7 @@ end
 
 function tile_platform(tx,ty)
  -- flag bit 1 = one-way platform
- return band(tile_flag(tx,ty),2)>0
+ return tile_flag(tx,ty)&2>0
 end
 
 -- check if collision box overlaps
@@ -609,8 +609,8 @@ function draw_main_layer()
    local c=md[ty*lvl_w+tx+1]
    if c>0 then
     local t=c\4
-    local fx=band(c,2)>0
-    local fy=band(c,1)>0
+    local fx=c&2>0
+    local fy=c&1>0
     local sc=(t-1)%8
     local sr=(t-1)\8
     spr(sr*32+sc*2,tx*ts-cx,ty*ts-cy,
@@ -774,7 +774,7 @@ function check_atk_tiles()
  local ty1=flr((ay1-0.01)/16)
  for ty=ty0,ty1 do
   for tx=tx0,tx1 do
-   if band(tile_flag(tx,ty),4)>0 then
+   if tile_flag(tx,ty)&4>0 then
     mdat[2][ty*lvl_w+tx+1]=0
     spawn_parts(tx*16+8,ty*16+8)
    end
@@ -948,6 +948,11 @@ function sp_set_anim(e,a)
  end
 end
 
+function go_idle(e,a,pt)
+ e.state="idle" sp_set_anim(e,a)
+ e.patrol_t=pt
+end
+
 -- probe: check two tile_solid points
 -- along an edge in direction dx,dy
 function sp_probe(x,y,dx,dy)
@@ -1066,8 +1071,7 @@ function update_spider(e)
   if e.state=="hit" then
    if e.frame<nf then e.frame+=1
    else
-    e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_spi)
+    go_idle(e,a_spi,60)
    end
   elseif e.state=="attack" then
    if e.frame==3 and not e.fired then
@@ -1089,8 +1093,7 @@ function update_spider(e)
    else
     e.atk_cd=180
     e.fired=false
-    e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_spi)
+    go_idle(e,a_spi,60)
    end
   elseif e.state=="walk" then
    e.frame=e.frame%nf+1
@@ -1133,8 +1136,7 @@ function update_spider(e)
   end
  elseif e.state=="walk" then
   if e.patrol_t<=0 then
-   e.patrol_t=60
-   e.state="idle" sp_set_anim(e,a_spi)
+   go_idle(e,a_spi,60)
   end
  end
 end
@@ -1160,8 +1162,7 @@ function update_wheelbot(e)
   if t then
    if e.frame<nf then e.frame+=1
    else
-    e.state="idle" sp_set_anim(e,a_wbi)
-    e.patrol_t=30
+    go_idle(e,a_wbi,30)
    end
   end
  elseif e.state=="idle" then
@@ -1186,8 +1187,7 @@ function update_wheelbot(e)
   else
    e.patrol_t-=1
    if e.patrol_t<=0 then
-    e.vx=0 e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_wbi)
+    e.vx=0 go_idle(e,a_wbi,60)
    end
   end
  elseif e.state=="charge" then
@@ -1217,8 +1217,7 @@ function update_wheelbot(e)
    end
    if e.frame<nf then e.frame+=1
    else
-    e.atk_cd=120 e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_wbi)
+    e.atk_cd=120 go_idle(e,a_wbi,60)
    end
   end
  elseif e.state=="fdash" then
@@ -1229,17 +1228,14 @@ function update_wheelbot(e)
   if t then
    if e.frame<nf then e.frame+=1
    else
-    e.vx=0 e.atk_cd=120
-    e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_wbi)
+    e.vx=0 e.atk_cd=120 go_idle(e,a_wbi,60)
    end
   end
  elseif e.state=="hit" then
   if t then
    if e.frame<nf then e.frame+=1
    else
-    e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_wbi)
+    go_idle(e,a_wbi,60)
    end
   end
  end
