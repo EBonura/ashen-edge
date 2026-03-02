@@ -1411,6 +1411,37 @@ def build_level_data(tileset, bg_tileset, map_data):
     return map_section, num_rt, rt_tile_flags, gen, num_spr_tiles
 
 
+def bytes_to_sfx_hex(data):
+    """Convert raw bytes to __sfx__ section hex format (64 lines of 168 hex chars).
+
+    Each SFX slot stores 68 bytes: 64 bytes as 32 notes (2 bytes each) + 4 header bytes.
+    Memory layout per SFX (at 0x3200 + slot*68):
+      bytes 0-63: notes, bytes 64-67: editor_mode, speed, loop_start, loop_end
+    .p8 format per SFX line (168 hex chars):
+      header (8 hex) + 32 notes (5 hex each = 160 hex)
+    """
+    padded = bytearray(data)
+    padded.extend(b'\x00' * (68 * 64 - len(padded)))  # pad to full 64 slots
+    lines = []
+    for slot in range(64):
+        d = padded[slot * 68:(slot + 1) * 68]
+        # Header: memory bytes 64-67 → first 8 hex chars
+        header = f"{d[64]:02x}{d[65]:02x}{d[66]:02x}{d[67]:02x}"
+        # Notes: memory bytes 0-63 → 32 notes of 5 hex chars each
+        notes = ""
+        for n in range(32):
+            b0, b1 = d[2 * n], d[2 * n + 1]
+            pitch = b0 & 0x3F
+            wf = ((b0 >> 6) & 0x3) | ((b1 & 0x1) << 2)
+            custom = (b1 >> 7) & 0x1
+            vol = (b1 >> 1) & 0x7
+            eff = (b1 >> 4) & 0x7
+            wf_hex = wf | (custom << 3)
+            notes += f"{pitch:02x}{wf_hex:1x}{vol:1x}{eff:1x}"
+        lines.append(header + notes)
+    return "\n".join(lines)
+
+
 def bytes_to_map_hex(data):
     """Convert bytes to __map__ section hex format (32 rows of 256 hex chars)."""
     padded = bytearray(data)
@@ -1623,13 +1654,10 @@ def build_cart():
         char_chunk.append((off >> 8) & 0xFF)
     char_chunk.extend(anim_data)
 
-    # GFX: char_chunk + title + font + spider + wheelbot
+    # GFX: char_chunk + font + spider + wheelbot (title moved to __sfx__)
     gfx_buf = bytearray(8192)
     gfx_buf[:len(char_chunk)] = char_chunk
     gfx_end = len(char_chunk)
-    title_base_addr = gfx_end
-    gfx_buf[gfx_end:gfx_end+len(title_chunk)] = title_chunk
-    gfx_end += len(title_chunk)
     font_base_addr = gfx_end
     gfx_buf[gfx_end:gfx_end+len(font_chunk)] = font_chunk
     gfx_end += len(font_chunk)
@@ -1642,23 +1670,36 @@ def build_cart():
     hp_base_addr = gfx_end
     gfx_buf[gfx_end:gfx_end+len(hp_chunk)] = hp_chunk
     gfx_end += len(hp_chunk)
-    total = gfx_end
-    print(f"  title_base=0x{title_base_addr:04x}  font_base=0x{font_base_addr:04x}")
+    gfx_total = gfx_end
+
+    # SFX: data packed from slot 63 downward, lower slots free for audio
+    sfx_buf = bytearray(68 * 64)  # 64 slots × 68 bytes
+    sfx_slots_used = (len(title_chunk) + 67) // 68
+    sfx_first_slot = 64 - sfx_slots_used  # e.g. 64-22 = slot 42
+    sfx_data_offset = sfx_first_slot * 68
+    title_base_addr = 0x3200 + sfx_data_offset
+    sfx_buf[sfx_data_offset:sfx_data_offset+len(title_chunk)] = title_chunk
+    sfx_data_used = len(title_chunk)
+
+    print(f"  font_base=0x{font_base_addr:04x}")
     print(f"  spider_base=0x{spider_base_addr:04x}  wheelbot_base=0x{wheelbot_base_addr:04x}")
     print(f"  hp_base=0x{hp_base_addr:04x}")
+    sfx_capacity = sfx_slots_used * 68
+    print(f"  title_base=0x{title_base_addr:04x} (in __sfx__ slots {sfx_first_slot}-63, {sfx_slots_used} slots)")
 
     print(f"\n=== TOTAL ===")
     print(f"  {num_anims} anims ({len(ANIMS)} player + {len(ent_anim_info)} entity), {total_frames} frames")
-    print(f"  Total: {total} / 8192 bytes ({total*100//8192}%)")
+    print(f"  __gfx__: {gfx_total} / 8192 bytes ({gfx_total*100//8192}%)")
+    print(f"  __sfx__: {sfx_data_used}b in slots {sfx_first_slot}-63 ({sfx_slots_used} slots, {sfx_first_slot} free for audio)")
 
-    if total > 8192:
-        print(f"  WARNING: exceeds sprite memory by {total - 8192} bytes!")
+    if gfx_total > 8192:
+        print(f"  WARNING: __gfx__ exceeds by {gfx_total - 8192} bytes!")
         print(f"  (but generating cart anyway for testing)")
 
     # Build generated data block
     gen_lines = []
     gen_lines.append(f"-- {total_frames} frames, {num_anims} anims")
-    gen_lines.append(f"-- compressed: {total}/8192 bytes ({total*100//8192}%)")
+    gen_lines.append(f"-- compressed: {gfx_total}/8192 gfx + {sfx_data_used}/4352 sfx")
     gen_lines.append(f"char_base=0")
     gen_lines.append(f"cell_w={CELL_W} cell_h={CELL_H}")
     gen_lines.append(f"trans={TRANS}")
@@ -1684,7 +1725,7 @@ def build_cart():
     ent_lhs = ",".join(ent_vars)
     ent_rhs = ",".join(str(len(ANIMS) + i + 1) for i in range(len(ent_anim_info)))
     gen_lines.append(f'{ent_lhs}=unpack(split"{ent_rhs}")')
-    # title and font in __gfx__ alongside player/entity anims
+    # title in __sfx__ memory, font in __gfx__
     num_main = len(ANIMS) + len(ent_anim_info)
     gen_lines.append(f"a_title={num_main+1} a_font={num_main+2}")
     gen_lines.append(f"title_base={title_base_addr} font_base={font_base_addr}")
@@ -1787,13 +1828,17 @@ def build_cart():
     if map_hex:
         map_section = f"\n__map__\n{map_hex}"
 
+    # Build sfx section
+    sfx_hex = bytes_to_sfx_hex(sfx_buf)
+    sfx_section = f"\n__sfx__\n{sfx_hex}"
+
     # Write single output cart
     p8 = f"""pico-8 cartridge // http://www.pico-8.com
 version 42
 __lua__
 {lua_code}
 __gfx__
-{gfx}{map_section}
+{gfx}{map_section}{sfx_section}
 """
 
     with open(OUTPUT_P8, "w") as f:
