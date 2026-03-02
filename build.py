@@ -1994,6 +1994,16 @@ def build_cart():
     ptl_base_idx = hb_base_idx + len(HELLBOT_ANIMS)
     gen_lines.append(f"a_ptl={ptl_base_idx}")
     gen_lines.append(f"portal_base={portal_base_addr} portal_cw={PORTAL_W} portal_ch={PORTAL_H}")
+    # unified aspd table — indexed by anim constant directly
+    plr_speeds = [6,5,5,5,5,2,6,6,4,6]  # idle,run,jump,fall,hit,land,atk1,xslice,sweep,death
+    ent_speeds = [6,6,6,8]  # door,sw_start,sw_idle,sw_down
+    sp_speeds  = [8,6,5,5,6]  # spider: idle,walk,attack,hit,death
+    wb_speeds  = [8,5,6,5,4,6,5,6]  # wheelbot: idle,move,charge,shoot,fdash,wake,damaged,death
+    hb_speeds  = [8,5,5,5,5,6]  # hellbot: idle,run,attack,shoot,hit,death
+    aspd = plr_speeds + ent_speeds + [30, 0]  # title=30, font=0
+    aspd += sp_speeds + wb_speeds + hb_speeds + [6]  # portal=6
+    aspd_str = ",".join(str(v) for v in aspd)
+    gen_lines.append(f'aspd=split"{aspd_str}"')
     # hp bar
     gen_lines.append(f"hp_base={hp_base_addr} hp_w={hp_w} hp_h={hp_h}")
     # font lookup table: char code -> frame index (1-based)
