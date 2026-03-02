@@ -570,23 +570,10 @@ def encode_animation(name, frames_pixels, fw, fh, bpp='auto', palette=None):
         bpp = min_bpp_for_frames(frames_pixels)
         palette = build_palette(frames_pixels, bpp) if bpp < 4 else None
     n = len(frames_pixels)
-    kd_block, kd_info = encode_type0(name, frames_pixels, fw, fh, bpp, palette)
-    pf_block, pf_info = encode_type1(name, frames_pixels, fw, fh, bpp, palette)
-    xr_block, xr_info = encode_type2(name, frames_pixels, fw, fh, bpp, palette)
     rx_block, rx_info = encode_type3(name, frames_pixels, fw, fh, bpp, palette)
     bpp_tag = f" [{bpp}bpp]"
-    # Pick smallest
-    options = [
-        (len(kd_block), kd_block, f"KD", kd_info),
-        (len(pf_block), pf_block, f"PF", pf_info),
-        (len(xr_block), xr_block, f"XR", xr_info),
-        (len(rx_block), rx_block, f"RX", rx_info),
-    ]
-    options.sort(key=lambda x: x[0])
-    best_size, best_block, best_tag, best_detail = options[0]
-    others = " ".join(f"{t}={s}b" for s, _, t, _ in options[1:])
-    info = f"    {name:12s}: {n:2d}f, {best_detail} {best_size}b ({others}){bpp_tag}"
-    return best_block, info
+    info = f"    {name:12s}: {n:2d}f, {rx_info} {len(rx_block)}b{bpp_tag}"
+    return rx_block, info
 
 
 def extract_font_frames(font_path, size, chars, threshold=128):
@@ -1324,7 +1311,7 @@ def build_cart():
         total_frames += len(ent_frames)
         print(info)
 
-    print("\nEncoding title and font as code strings...")
+    print("\nEncoding title and font into __gfx__...")
     title_block, title_info = encode_animation("title", title_frames, 128, 128)
     print(title_info)
     font_block, font_info = encode_animation("font", font_frames, font_cw, font_ch)
@@ -1333,8 +1320,8 @@ def build_cart():
     # mini-chunk: [na=1][cell_w=0][cell_h=0][off_lo=0][off_hi=0][block]
     title_chunk = bytearray([1, 0, 0, 0, 0]) + title_block
     font_chunk  = bytearray([1, 0, 0, 0, 0]) + font_block
-    title_base_addr = 0x4300
-    font_base_addr  = 0x4300 + len(title_chunk)
+    title_base_addr = len(char_chunk)
+    font_base_addr  = title_base_addr + len(title_chunk)
     print(f"  title_chunk: {len(title_chunk)}b  font_chunk: {len(font_chunk)}b")
     print(f"  title_base=0x{title_base_addr:04x}  font_base=0x{font_base_addr:04x}")
 
@@ -1369,7 +1356,7 @@ def build_cart():
         spider_chunk.append(off & 0xFF)
         spider_chunk.append((off >> 8) & 0xFF)
     spider_chunk.extend(sp_data)
-    spider_base_addr = 0x4300 + len(title_chunk) + len(font_chunk)
+    spider_base_addr = font_base_addr + len(font_chunk)
     print(f"  spider_chunk: {len(spider_chunk)}b  base=0x{spider_base_addr:04x}")
     # per-frame horizontal center of non-transparent pixels (for draw anchoring)
     sp_anc_parts = []
@@ -1408,7 +1395,7 @@ def build_cart():
         wheelbot_chunk.append(off & 0xFF)
         wheelbot_chunk.append((off >> 8) & 0xFF)
     wheelbot_chunk.extend(wb_data)
-    wheelbot_base_addr = 0x4300 + len(title_chunk) + len(font_chunk) + len(spider_chunk)
+    wheelbot_base_addr = spider_base_addr + len(spider_chunk)
     print(f"  wheelbot_chunk: {len(wheelbot_chunk)}b  base=0x{wheelbot_base_addr:04x}")
     # per-frame horizontal center of non-transparent pixels (for draw anchoring)
     wb_anc_parts = []
@@ -1438,7 +1425,20 @@ def build_cart():
         char_chunk.append((off >> 8) & 0xFF)
     char_chunk.extend(anim_data)
 
-    total = len(char_chunk)
+    # GFX: char_chunk + title + font + spider + wheelbot
+    gfx_buf = bytearray(8192)
+    gfx_buf[:len(char_chunk)] = char_chunk
+    gfx_end = len(char_chunk)
+    gfx_buf[gfx_end:gfx_end+len(title_chunk)] = title_chunk
+    gfx_end += len(title_chunk)
+    gfx_buf[gfx_end:gfx_end+len(font_chunk)] = font_chunk
+    gfx_end += len(font_chunk)
+    gfx_buf[gfx_end:gfx_end+len(spider_chunk)] = spider_chunk
+    gfx_end += len(spider_chunk)
+    gfx_buf[gfx_end:gfx_end+len(wheelbot_chunk)] = wheelbot_chunk
+    gfx_end += len(wheelbot_chunk)
+    total = gfx_end
+
     print(f"\n=== TOTAL ===")
     print(f"  {num_anims} anims ({len(ANIMS)} player + {len(ent_anim_info)} entity), {total_frames} frames")
     print(f"  Total: {total} / 8192 bytes ({total*100//8192}%)")
@@ -1446,10 +1446,6 @@ def build_cart():
     if total > 8192:
         print(f"  WARNING: exceeds sprite memory by {total - 8192} bytes!")
         print(f"  (but generating cart anyway for testing)")
-
-    # GFX is just the char_chunk (no entity tiles in spritesheet)
-    gfx_buf = bytearray(8192)
-    gfx_buf[:len(char_chunk)] = char_chunk
 
     # Build generated data block
     gen_lines = []
@@ -1480,12 +1476,10 @@ def build_cart():
     ent_lhs = ",".join(ent_vars)
     ent_rhs = ",".join(str(len(ANIMS) + i + 1) for i in range(len(ent_anim_info)))
     gen_lines.append(f"{ent_lhs}={ent_rhs}")
-    # title and font live in code strings, decoded to free RAM at startup
+    # title and font in __gfx__ alongside player/entity anims
     num_main = len(ANIMS) + len(ent_anim_info)
     gen_lines.append(f"a_title={num_main+1} a_font={num_main+2}")
     gen_lines.append(f"title_base={title_base_addr} font_base={font_base_addr}")
-    gen_lines.append(f"title_data={bytes_to_p8_str(title_chunk)}")
-    gen_lines.append(f"font_data={bytes_to_p8_str(font_chunk)}")
     gen_lines.append(f"font_cw={font_cw} font_ch={font_ch}")
     # spider — code string, multi-anim chunk at spider_base
     sp_var_map = {
@@ -1498,10 +1492,9 @@ def build_cart():
     sp_rhs = ",".join(str(sp_base_idx + i) for i in range(len(SPIDER_ANIMS)))
     gen_lines.append(f"{sp_lhs}={sp_rhs}")
     gen_lines.append(f"spider_base={spider_base_addr} spider_cw={SPIDER_W} spider_ch={SPIDER_H}")
-    gen_lines.append(f"spider_data={bytes_to_p8_str(spider_chunk)}")
     gen_lines.append(f'_sa=split("{sp_anc_str}","|",false)')
     gen_lines.append("sp_anc={} for i=1,#_sa do sp_anc[a_spi+i-1]=split(_sa[i]) end")
-    # wheel bot — code string, multi-anim chunk at wheelbot_base
+    # wheel bot — in __gfx__, multi-anim chunk at wheelbot_base
     wb_var_map = {
         "wb_idle": "a_wbi", "wb_move": "a_wbm",
         "wb_charge": "a_wbc", "wb_shoot": "a_wbs",
@@ -1514,7 +1507,6 @@ def build_cart():
     wb_rhs = ",".join(str(wb_base_idx + i) for i in range(len(WHEELBOT_ANIMS)))
     gen_lines.append(f"{wb_lhs}={wb_rhs}")
     gen_lines.append(f"wheelbot_base={wheelbot_base_addr} wheelbot_cw={WHEELBOT_W} wheelbot_ch={WHEELBOT_H}")
-    gen_lines.append(f"wheelbot_data={bytes_to_p8_str(wheelbot_chunk)}")
     gen_lines.append(f'_wa=split("{wb_anc_str}","|",false)')
     gen_lines.append("wb_anc={} for i=1,#_wa do wb_anc[a_wbi+i-1]=split(_wa[i]) end")
     # font lookup table: char code -> frame index (1-based)

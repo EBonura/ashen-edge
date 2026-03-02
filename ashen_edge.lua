@@ -80,6 +80,8 @@ plr_hp=3
 sprojs={}
 -- spider anim speeds: idle,walk,attack,hit,death
 sp_aspd=split"8,6,5,5,6"
+-- wb anim speeds: idle,move,charge,shoot,fire_dash,wake,damaged,death
+wb_aspd=split"8,5,6,5,4,6,5,6"
 
 -- entity system
 ents={}
@@ -115,37 +117,6 @@ function decode_rle(off,npix,bpp)
  return buf,off
 end
 
-function decode_skip(buf,off)
- local nd=peek(off)
- off+=1
- if nd==255 then
-  nd=pk2(off)
-  off+=2
- end
- if nd==0 then return end
- local pos=pk2(off)+1
- off+=2
- buf[pos]=peek(off)
- off+=1
- for i=2,nd do
-  local b=peek(off)
-  off+=1
-  local skip=b\16
-  local col=b&15
-  if skip==15 then
-   local ext=peek(off)
-   off+=1
-   if ext==255 then
-    skip=pk2(off)
-    off+=2
-   else
-    skip=15+ext
-   end
-  end
-  pos+=skip+1
-  buf[pos]=col
- end
-end
 
 function read_anim(a,cb)
  cb=cb or char_base
@@ -153,8 +124,7 @@ function read_anim(a,cb)
  local aoff=pk2(cb+3+(a-1)*2)
  local ab=cb+3+na*2+aoff
  local nf=peek(ab)
- local enc=peek(ab+1)
- -- read bpp and optional palette (new field at ab+2)
+ -- skip enc byte (ab+1), read bpp
  local bpp=peek(ab+2)
  local np=bpp<4 and (1<<bpp) or 0
  local pal={}
@@ -163,45 +133,20 @@ function read_anim(a,cb)
   pal[i+1]=(i%2==0) and ((b>>4)&0xf) or (b&0xf)
  end
  local pal_bytes=flr((np+1)/2)
- -- h = start of enc-specific header fields
  local h=ab+3+pal_bytes
- if enc==0 then
-  local nk=peek(h)
-  local bx=peek(h+1)
-  local by=peek(h+2)
-  local bw=peek(h+3)
-  local bh=peek(h+4)
-  local ki_off=h+5
-  local ks_off=ki_off+nk
-  local as_off=ks_off+nk*2
-  local do_off=as_off+nf
-  local data_off=do_off+nf*2
-  local ksz={}
-  for i=0,nk-1 do
-   ksz[i]=pk2(ks_off+i*2)
-  end
-  return {
-   enc=0,nf=nf,nk=nk,
-   bpp=bpp,pal=pal,
-   bx=bx,by=by,bw=bw,bh=bh,
-   ki_off=ki_off,ks_off=ks_off,
-   as_off=as_off,do_off=do_off,
-   data_off=data_off,ksz=ksz
-  }
- else
-  local bx=peek(h)
-  local by=peek(h+1)
-  local bw=peek(h+2)
-  local bh=peek(h+3)
-  local fo_off=h+4
-  local data_off=fo_off+nf*2
-  return {
-   enc=2,nf=nf,
-   bpp=bpp,pal=pal,
-   bx=bx,by=by,bw=bw,bh=bh,
-   fo_off=fo_off,data_off=data_off
-  }
- end
+ local bx=peek(h)
+ local by=peek(h+1)
+ local bw=peek(h+2)
+ local bh=peek(h+3)
+ local ref_off=h+4
+ local fo_off=ref_off+nf
+ local data_off=fo_off+nf*2
+ return {
+  nf=nf,bpp=bpp,pal=pal,
+  bx=bx,by=by,bw=bw,bh=bh,
+  ref_off=ref_off,fo_off=fo_off,
+  data_off=data_off
+ }
 end
 
 acache={}
@@ -209,34 +154,16 @@ sp_anc={}
 
 function decode_anim(ai)
  local frames={}
- if ai.enc==0 then
-  local npix=ai.bw*ai.bh
-  local kbufs={}
-  local koff=ai.data_off
-  for i=0,ai.nk-1 do
-   kbufs[i]=decode_rle(koff,npix,ai.bpp)
-   koff+=ai.ksz[i]
-  end
-  for f=1,ai.nf do
-   local ki=peek(ai.as_off+f-1)
-   local buf={}
-   local kb=kbufs[ki]
-   for i=1,#kb do buf[i]=kb[i] end
-   local doff=pk2(ai.do_off+(f-1)*2)
-   decode_skip(buf,ai.data_off+doff)
-   frames[f]={buf,ai.bx,ai.by,ai.bw,ai.bh}
-  end
- else
-  local npix=ai.bw*ai.bh
-  local prev={}
-  for i=1,npix do prev[i]=0 end
-  for f=1,ai.nf do
-   local foff=pk2(ai.fo_off+(f-1)*2)
-   local d=decode_rle(ai.data_off+foff,npix,ai.bpp)
-   for i=1,npix do d[i]=d[i]^^prev[i] end
-   prev=d
-   frames[f]={d,ai.bx,ai.by,ai.bw,ai.bh}
-  end
+ local npix=ai.bw*ai.bh
+ local zeros={}
+ for i=1,npix do zeros[i]=0 end
+ for f=1,ai.nf do
+  local ref=peek(ai.ref_off+f-1)
+  local foff=pk2(ai.fo_off+(f-1)*2)
+  local d=decode_rle(ai.data_off+foff,npix,ai.bpp)
+  local base=ref==255 and zeros or frames[ref+1][1]
+  for i=1,npix do d[i]=d[i]^^base[i] end
+  frames[f]={d,ai.bx,ai.by,ai.bw,ai.bh}
  end
  if ai.bpp<4 and #ai.pal>0 then
   for f=1,#frames do
@@ -250,34 +177,25 @@ function decode_anim(ai)
 end
 
 function cache_anims()
- -- copy string-backed anims to free RAM
- local p=title_base
- for i=1,#title_data do poke(p,ord(title_data,i)) p+=1 end
- p=font_base
- for i=1,#font_data do poke(p,ord(font_data,i)) p+=1 end
- p=spider_base
- for i=1,#spider_data do poke(p,ord(spider_data,i)) p+=1 end
  -- decode main anims from gfx memory
  local na=peek(char_base)
  for a=1,na do
   local ai=read_anim(a,char_base)
   acache[a]={ai=ai,frames=decode_anim(ai),cw=cell_w,ch=cell_h}
  end
- -- decode title and font from code strings (via RAM copy)
+ -- decode title and font from gfx memory
  local ai=read_anim(1,title_base)
  acache[a_title]={ai=ai,frames=decode_anim(ai),cw=128,ch=128}
  ai=read_anim(1,font_base)
  acache[a_font]={ai=ai,frames=decode_anim(ai),cw=font_cw,ch=font_ch}
- -- decode spider anims from code string
+ -- decode spider anims from gfx memory
  local sna=peek(spider_base)
  for a=1,sna do
   ai=read_anim(a,spider_base)
   local idx=a_spi+a-1
   acache[idx]={ai=ai,frames=decode_anim(ai),cw=spider_cw,ch=spider_ch}
  end
- -- decode wheel bot anims from code string
- p=wheelbot_base
- for i=1,#wheelbot_data do poke(p,ord(wheelbot_data,i)) p+=1 end
+ -- decode wheel bot anims from gfx memory
  local wna=peek(wheelbot_base)
  for a=1,wna do
   ai=read_anim(a,wheelbot_base)
@@ -919,6 +837,14 @@ function init_ents()
    e.atk_cd=0 e.fired=false
    e.inv_t=0 e.move_acc=0
    e.patrol_t=60 e.walk_count=0
+  elseif e.type==4 then
+   e.x=e.tx*16+8 e.y=(e.ty+1)*16
+   e.vx=0 e.vy=0 e.mdir=1
+   e.anim=a_wbi e.frame=1
+   e.state="sleep" e.anim_t=0
+   e.hp=4 e.inv_t=0 e.atk_cd=0
+   e.grounded=false e.fired=false
+   e.patrol_t=0 e.walk_count=0
   end
  end
 end
@@ -985,6 +911,20 @@ function check_atk_ents()
     else
      e.state="hit"
      sp_set_anim(e,a_sph)
+    end
+   end
+  elseif e.type==4 and e.hp>0
+   and e.state~="death" and e.state~="sleep"
+   and e.state~="fdash" and e.inv_t==0 then
+   if ax1>e.x-14 and ax0<e.x+14
+    and ay1>e.y-24 and ay0<e.y then
+    e.hp-=1 e.inv_t=20
+    if e.hp<=0 then
+     e.state="death" e.vx=0
+     sp_set_anim(e,a_wbdt)
+    else
+     e.state="hit" e.vx=0
+     sp_set_anim(e,a_wbd)
     end
    end
   end
@@ -1061,6 +1001,29 @@ function step_spider(e)
   e.x=nx
   e.y=ny
  end
+end
+
+function wb_move(e)
+ if not e.grounded then
+  e.vy+=0.15
+  if e.vy>3 then e.vy=3 end
+ end
+ e.x+=e.vx
+ if box_hits_solid(e.x-14,e.y-24,e.x+14,e.y) then
+  if e.vx>0 then e.x=flr((e.x+13.99)/16)*16-14
+  elseif e.vx<0 then e.x=flr((e.x-14)/16)*16+16+14 end
+  e.vx=0
+ end
+ e.y+=e.vy
+ if box_hits_solid(e.x-14,e.y-24,e.x+14,e.y) then
+  if e.vy>=0 then
+   e.y=flr((e.y-0.01)/16)*16
+   e.vy=0 e.grounded=true
+  else
+   e.y=flr((e.y-24)/16)*16+16+24
+   e.vy=0
+  end
+ else e.grounded=false end
 end
 
 function ent_tick(e,spd)
@@ -1165,6 +1128,113 @@ function update_spider(e)
  end
 end
 
+function update_wheelbot(e)
+ local spd=wb_aspd[e.anim-a_wbi+1] or 6
+ if e.state=="death" then
+  local t,nf=ent_tick(e,spd)
+  if t and e.frame<nf then e.frame+=1 end
+  wb_move(e) return
+ end
+ if e.inv_t>0 then e.inv_t-=1 end
+ if e.atk_cd>0 then e.atk_cd-=1 end
+ local t,nf=ent_tick(e,spd)
+ local ddx=px-e.x
+ local ddy=(py+11)-e.y
+ local dist=abs(ddx)
+ if e.state=="sleep" then
+  if dist<64 and abs(ddy)<48 then
+   e.state="wake" sp_set_anim(e,a_wbwk)
+  end
+ elseif e.state=="wake" then
+  if t then
+   if e.frame<nf then e.frame+=1
+   else
+    e.state="idle" sp_set_anim(e,a_wbi)
+    e.patrol_t=30
+   end
+  end
+ elseif e.state=="idle" then
+  if e.atk_cd==0 and dist<80 and abs(ddy)<32 then
+   e.mdir=ddx>0 and 1 or -1
+   e.state="charge" sp_set_anim(e,a_wbc)
+  else
+   e.patrol_t-=1
+   if e.patrol_t<=0 then
+    e.walk_count+=1
+    if e.walk_count%2==0 then e.mdir=-e.mdir end
+    e.patrol_t=120
+    e.state="move" sp_set_anim(e,a_wbm)
+   end
+  end
+ elseif e.state=="move" then
+  e.vx=e.mdir*0.6
+  if t then e.frame=e.frame%nf+1 end
+  if e.atk_cd==0 and dist<80 and abs(ddy)<32 then
+   e.vx=0 e.mdir=ddx>0 and 1 or -1
+   e.state="charge" sp_set_anim(e,a_wbc)
+  else
+   e.patrol_t-=1
+   if e.patrol_t<=0 then
+    e.vx=0 e.patrol_t=60
+    e.state="idle" sp_set_anim(e,a_wbi)
+   end
+  end
+ elseif e.state=="charge" then
+  if t then
+   if e.frame<nf then e.frame+=1
+   else
+    if dist>48 then
+     e.state="shoot" sp_set_anim(e,a_wbs)
+     e.fired=false
+    else
+     e.state="fdash" sp_set_anim(e,a_wbfd)
+     e.inv_t=30
+    end
+   end
+  end
+ elseif e.state=="shoot" then
+  if t then
+   if e.frame==3 and not e.fired then
+    e.fired=true
+    local sx,sy=e.x,e.y-12
+    local d=max(abs(ddx),abs(ddy))
+    if d>0 then
+     add(sprojs,{x=sx,y=sy,
+      dx=ddx/d*2.5,dy=ddy/d*2.5,
+      exp=false,et=0})
+    end
+   end
+   if e.frame<nf then e.frame+=1
+   else
+    e.atk_cd=120 e.patrol_t=60
+    e.state="idle" sp_set_anim(e,a_wbi)
+   end
+  end
+ elseif e.state=="fdash" then
+  e.vx=e.mdir*3
+  if abs(px-e.x)<18 and abs(py+11-e.y+12)<16 then
+   plr_hp-=1
+  end
+  if t then
+   if e.frame<nf then e.frame+=1
+   else
+    e.vx=0 e.atk_cd=120
+    e.patrol_t=60
+    e.state="idle" sp_set_anim(e,a_wbi)
+   end
+  end
+ elseif e.state=="hit" then
+  if t then
+   if e.frame<nf then e.frame+=1
+   else
+    e.patrol_t=60
+    e.state="idle" sp_set_anim(e,a_wbi)
+   end
+  end
+ end
+ wb_move(e)
+end
+
 function update_sprojs()
  for p in all(sprojs) do
   if p.exp then
@@ -1222,6 +1292,8 @@ function update_ents()
    end
   elseif e.type==3 then
    update_spider(e)
+  elseif e.type==4 then
+   update_wheelbot(e)
   end
  end
 end
@@ -1252,7 +1324,15 @@ end
 
 function draw_ents()
  for e in all(ents) do
-  if e.type==3 then
+  if e.type==4 then
+   if not(e.inv_t>0 and e.inv_t%4<2) then
+    local a,f=e.anim,e.frame
+    local ax=(wb_anc[a] and wb_anc[a][f]) or wheelbot_cw\2
+    local flip=e.mdir==-1
+    local dx=flip and e.x-(wheelbot_cw-1-ax) or e.x-ax
+    draw_char(a,f,dx-cam_x,e.y-wheelbot_ch-cam_y,flip)
+   end
+  elseif e.type==3 then
    local sx=e.x-cam_x
    local sy=e.y-cam_y
    local flip=e.mdir==-1

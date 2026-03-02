@@ -83,6 +83,7 @@ body { background: #1d2b53; color: #fff; font-family: monospace; display: flex; 
       <button class="ent-type-btn active" data-etype="1" style="background:#ff6600;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Door</button>
       <button class="ent-type-btn" data-etype="2" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Switch</button>
       <button class="ent-type-btn" data-etype="3" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Spider</button>
+      <button class="ent-type-btn" data-etype="4" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">WheelBot</button>
     </div>
     <div id="entity-props" style="display:none;">
       <label style="font-size:11px">Group: <input type="number" id="entity-group" min="1" max="255" value="1"
@@ -212,7 +213,8 @@ let dragObjStart = null;     // {x, y} tile at drag start
 const ENT_TYPES = [
   { id: 1, name: "Door",   w: 1, h: 3, color: "#ff6600", hasGroup: true },
   { id: 2, name: "Switch", w: 1, h: 1, color: "#00ff88", hasGroup: true },
-  { id: 3, name: "Spider", w: 1, h: 1, color: "#ff004d", hasGroup: false }
+  { id: 3, name: "Spider", w: 1, h: 1, color: "#ff004d", hasGroup: false },
+  { id: 4, name: "WheelBot", w: 2, h: 2, color: "#29adff", hasGroup: false }
 ];
 let entities = [];
 let selectedEntity = null;
@@ -700,10 +702,12 @@ function render() {
         ctx.font = Math.max(8, ts * 0.35) + "px monospace";
         ctx.textAlign = "center"; ctx.textBaseline = "top";
         ctx.fillText(et.name, ex + ew/2, ey + 2);
-        ctx.fillStyle = "#fff";
-        ctx.font = Math.max(10, ts * 0.5) + "px monospace";
-        ctx.textBaseline = "middle";
-        ctx.fillText("G" + ent.group, ex + ew/2, ey + eh/2);
+        if (et.hasGroup) {
+          ctx.fillStyle = "#fff";
+          ctx.font = Math.max(10, ts * 0.5) + "px monospace";
+          ctx.textBaseline = "middle";
+          ctx.fillText("G" + ent.group, ex + ew/2, ey + eh/2);
+        }
         if (ei === selectedEntity) {
           ctx.strokeStyle = "#ff004d"; ctx.lineWidth = 3;
           ctx.setLineDash([4, 3]);
@@ -718,6 +722,7 @@ function render() {
         groupMap[ent.group].push(ent);
       }
       for (const g in groupMap) {
+        if (g === "0") continue;
         const arr = groupMap[g];
         if (arr.length < 2) continue;
         ctx.strokeStyle = "#ffff00"; ctx.lineWidth = 1;
@@ -922,9 +927,12 @@ wrap.addEventListener("mousedown", e => {
     });
     if (clickedEntIdx >= 0) {
       pushUndo();
+      selectedEntity = clickedEntIdx;
       isDraggingEntity = clickedEntIdx;
       dragObjStart = {x: tx, y: ty};
       render(); return;
+    } else {
+      selectedEntity = null;
     }
     // Check if clicking on spawn point (1 wide x 2 tall)
     if (spawnX >= 0 && tx === spawnX && ty >= spawnY && ty < spawnY + 2) {
@@ -1099,8 +1107,8 @@ document.addEventListener("keydown", e => {
   if (e.code==="KeyP") setTool("spawn");
   if (e.code==="KeyS"&&currentTool!=="select") setTool("select");
   if (e.code==="KeyN") setTool("entity");
-  if (e.code==="Escape") { clearSelection(); if (currentTool==="entity") { selectedEntity=null; document.getElementById("entity-props").style.display="none"; } render(); }
-  if ((e.code==="Delete"||e.code==="Backspace")&&currentTool==="entity"&&selectedEntity!==null) { e.preventDefault(); pushUndo(); entities.splice(selectedEntity,1); selectedEntity=null; document.getElementById("entity-props").style.display="none"; render(); }
+  if (e.code==="Escape") { clearSelection(); selectedEntity=null; if (currentTool==="entity") { document.getElementById("entity-props").style.display="none"; } render(); }
+  if ((e.code==="Delete"||e.code==="Backspace")&&selectedEntity!==null) { e.preventDefault(); pushUndo(); entities.splice(selectedEntity,1); selectedEntity=null; document.getElementById("entity-props").style.display="none"; render(); }
   else if ((e.code==="Delete"||e.code==="Backspace")&&selection) { e.preventDefault(); clearSelectionArea(); }
   if (e.code==="Tab") { e.preventDefault();toggleGrid(); }
   if (e.code==="KeyF") toggleFlagsOverlay();
