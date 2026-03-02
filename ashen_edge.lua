@@ -35,6 +35,14 @@ aspd=split"6,5,5,5,5,2,6,6,4,6,6,6,6,8,30"
 -- physics
 grav,max_fall,jump_spd,run_spd,friction=0.15,3,-3.5,1.5,0.8
 
+-- spider surface-crawling tables
+-- indexed by surf+1: 1=floor,2=rwall,3=ceil,4=lwall
+sf_dx=split"1,0,-1,0"  -- canonical forward dx
+sf_dy=split"0,-1,0,1"  -- canonical forward dy
+sd_dx=split"0,1,0,-1"  -- surface "down" dx
+sd_dy=split"1,0,-1,0"  -- surface "down" dy
+sp_rot=split"0,3,2,1"  -- draw rotation per surface
+
 -- collision box (relative to px,py)
 -- box: x from px-3 to px+3, y from py+3 to py+19
 cb_x0,cb_x1,cb_y0,cb_y1=-3,3,3,19
@@ -273,22 +281,30 @@ function get_frame(a,f)
  return fr[1],fr[2],fr[3],fr[4],fr[5]
 end
 
-function draw_char(a,f,sx,sy,flip)
+function draw_char(a,f,sx,sy,flip,rot)
  local buf,bx,by,bw,bh=get_frame(a,f)
  if bw==0 then return end
- local acw=acache[a].cw
+ local cw=acache[a].cw
  local idx=1
  for y=0,bh-1 do
   for x=0,bw-1 do
    local col=buf[idx]
    if col~=trans then
-    local dx
+    local dx,dy
     if flip then
-     dx=acw-1-bx-x
+     dx=cw-1-bx-x
     else
      dx=bx+x
     end
-    pset(sx+dx,sy+by+y,col)
+    dy=by+y
+    if rot==1 then
+     dx,dy=cw-1-dy,dx
+    elseif rot==2 then
+     dx,dy=cw-1-dx,cw-1-dy
+    elseif rot==3 then
+     dx,dy=dy,cw-1-dx
+    end
+    pset(sx+dx,sy+dy,col)
    end
    idx+=1
   end
@@ -910,12 +926,12 @@ function init_ents()
   elseif e.type==3 then
    -- spider
    e.x=e.tx*16 e.y=e.ty*16
-   e.facing=1
+   e.surf=0 e.mdir=1
    e.anim=a_spi e.frame=1
    e.state="idle"
    e.anim_t=0 e.hp=3
    e.atk_cd=0 e.fired=false
-   e.inv_t=0 e.vy=0
+   e.inv_t=0 e.move_acc=0
    e.patrol_t=60 e.walk_count=0
   end
  end
@@ -1001,23 +1017,116 @@ function sp_set_anim(e,a)
  end
 end
 
-function update_spider(e)
- -- gravity runs in all states (including death)
- e.vy=min(e.vy+grav,max_fall)
- e.y+=e.vy
- if box_hits_solid(e.x+2,e.y+14,e.x+14,e.y+16) then
-  e.y=flr((e.y+16-0.01)/16)*16-16
-  e.vy=0
+-- probe: is surface still there?
+-- check 1px past feet edge at two
+-- points along the feet span
+function sp_probe_ground(x,y,surf)
+ local s=surf+1
+ local ddx,ddy=sd_dx[s],sd_dy[s]
+ if surf==0 then
+  return tile_solid(flr((x+2)/16),flr((y+16)/16))
+   or tile_solid(flr((x+13)/16),flr((y+16)/16))
+ elseif surf==1 then
+  return tile_solid(flr((x+16)/16),flr((y+2)/16))
+   or tile_solid(flr((x+16)/16),flr((y+13)/16))
+ elseif surf==2 then
+  return tile_solid(flr((x+2)/16),flr((y-1)/16))
+   or tile_solid(flr((x+13)/16),flr((y-1)/16))
+ else
+  return tile_solid(flr((x-1)/16),flr((y+2)/16))
+   or tile_solid(flr((x-1)/16),flr((y+13)/16))
  end
+end
 
- -- death: tick anim only, no AI
+-- probe: is wall blocking forward?
+function sp_probe_ahead(x,y,surf,mdir)
+ local s=surf+1
+ local fdx=sf_dx[s]*mdir
+ local fdy=sf_dy[s]*mdir
+ if fdx>0 then
+  return tile_solid(flr((x+16)/16),flr((y+2)/16))
+   or tile_solid(flr((x+16)/16),flr((y+13)/16))
+ elseif fdx<0 then
+  return tile_solid(flr((x-1)/16),flr((y+2)/16))
+   or tile_solid(flr((x-1)/16),flr((y+13)/16))
+ elseif fdy<0 then
+  return tile_solid(flr((x+2)/16),flr((y-1)/16))
+   or tile_solid(flr((x+13)/16),flr((y-1)/16))
+ else
+  return tile_solid(flr((x+2)/16),flr((y+16)/16))
+   or tile_solid(flr((x+13)/16),flr((y+16)/16))
+ end
+end
+
+-- snap spider feet to nearest
+-- solid tile on current surface
+function sp_snap(e)
+ if e.surf==0 then
+  local ty=flr((e.y+16)/16)
+  if tile_solid(flr((e.x+8)/16),ty) then
+   e.y=ty*16-16
+  end
+ elseif e.surf==1 then
+  local tx=flr((e.x+16)/16)
+  if tile_solid(tx,flr((e.y+8)/16)) then
+   e.x=tx*16-16
+  end
+ elseif e.surf==2 then
+  local ty=flr((e.y-1)/16)
+  if tile_solid(flr((e.x+8)/16),ty) then
+   e.y=(ty+1)*16
+  end
+ else
+  local tx=flr((e.x-1)/16)
+  if tile_solid(tx,flr((e.y+8)/16)) then
+   e.x=(tx+1)*16
+  end
+ end
+end
+
+-- move spider 1px along surface
+function step_spider(e)
+ local s=e.surf+1
+ local fdx=sf_dx[s]*e.mdir
+ local fdy=sf_dy[s]*e.mdir
+ local nx=e.x+fdx
+ local ny=e.y+fdy
+
+ if sp_probe_ahead(nx,ny,e.surf,e.mdir) then
+  -- inner corner: wall ahead
+  e.surf=(e.surf+e.mdir)%4
+  sp_snap(e)
+ elseif not sp_probe_ground(nx,ny,e.surf) then
+  -- outer corner: no ground ahead
+  -- shift position into the surface
+  e.x+=sd_dx[s]*16
+  e.y+=sd_dy[s]*16
+  e.surf=(e.surf-e.mdir+4)%4
+  sp_snap(e)
+ else
+  -- straight movement
+  e.x=nx
+  e.y=ny
+ end
+end
+
+function sp_tick_anim(e)
+ e.anim_t+=1
+ local as=sp_aspd[e.anim-a_spi+1] or 6
+ if e.anim_t>=as then
+  e.anim_t=0
+  local nf=acache[e.anim].ai.nf
+  return true,nf
+ end
+ return false,0
+end
+
+function update_spider(e)
+ -- death: tick anim only, no movement
  if e.state=="death" then
-  e.anim_t+=1
-  local as=sp_aspd[e.anim-a_spi+1] or 6
-  if e.anim_t>=as then
-   e.anim_t=0
-   local nf=acache[e.anim].ai.nf
-   if e.frame<nf then e.frame+=1 end
+  local tick,nf=sp_tick_anim(e)
+  if tick and e.frame<nf then
+   e.frame+=1
   end
   return
  end
@@ -1026,11 +1135,8 @@ function update_spider(e)
  if e.atk_cd>0 then e.atk_cd-=1 end
 
  -- tick animation
- e.anim_t+=1
- local as=sp_aspd[e.anim-a_spi+1] or 6
- if e.anim_t>=as then
-  e.anim_t=0
-  local nf=acache[e.anim].ai.nf
+ local tick,nf=sp_tick_anim(e)
+ if tick then
   if e.state=="hit" then
    if e.frame<nf then e.frame+=1
    else
@@ -1040,20 +1146,18 @@ function update_spider(e)
   elseif e.state=="attack" then
    if e.frame==3 and not e.fired then
     e.fired=true
-    local dir=e.facing
-    local sx=e.x+8+dir*4
-    local sy=e.y
-    local vx=dir*2
-    local ddx=px-sx
+    -- fire projectile from spider center
+    local sx=e.x+8
+    local sy=e.y+8
+    local ddx=px+0-sx
     local ddy=py+8-sy
-    local t=ddx/vx
-    local vy=0
-    if t>1 then
-     vy=mid(-5,(ddy-0.1*t*t)/t,4)
-    else
-     vy=-2
+    local dist=max(abs(ddx),abs(ddy))
+    if dist>0 then
+     local spd=2
+     local vx=ddx/dist*spd
+     local vy=ddy/dist*spd
+     add(sprojs,{x=sx,y=sy,dx=vx,dy=vy,exp=false,et=0})
     end
-    add(sprojs,{x=sx,y=sy,dx=vx,dy=vy,exp=false,et=0})
    end
    if e.frame<nf then e.frame+=1
    else
@@ -1067,38 +1171,44 @@ function update_spider(e)
   end
  end
 
- -- spot player: check every frame, overrides patrol
+ -- spot player
  if (e.state=="idle" or e.state=="walk") and e.atk_cd==0 then
   local ddx=px-e.x
   local ddy=py-e.y
-  if abs(ddx)<80 and abs(ddy)<32 then
-   e.facing=ddx>0 and 1 or -1
+  if abs(ddx)<80 and abs(ddy)<48 then
+   -- face player along surface
+   local s=e.surf+1
+   local fdx=sf_dx[s]
+   local fdy=sf_dy[s]
+   local dot=ddx*fdx+ddy*fdy
+   e.mdir=dot>=0 and 1 or -1
    e.state="attack" sp_set_anim(e,a_spa)
    return
   end
  end
 
- -- patrol: idle <-> walk loop
+ -- patrol: idle <-> walk
+ if e.state=="walk" then
+  e.move_acc+=0.5
+  while e.move_acc>=1 do
+   e.move_acc-=1
+   step_spider(e)
+  end
+ end
  e.patrol_t-=1
  if e.state=="idle" then
   if e.patrol_t<=0 then
    e.walk_count+=1
-   if e.walk_count%2==0 then e.facing=-e.facing end
+   if e.walk_count%2==0 then
+    e.mdir=-e.mdir
+   end
    e.patrol_t=120
    e.state="walk" sp_set_anim(e,a_spw)
   end
  elseif e.state=="walk" then
-  local nx=e.x+e.facing*0.5
-  if box_hits_solid(nx+2,e.y,nx+14,e.y+16) then
-   -- wall: go idle early
+  if e.patrol_t<=0 then
    e.patrol_t=60
    e.state="idle" sp_set_anim(e,a_spi)
-  else
-   e.x=nx
-   if e.patrol_t<=0 then
-    e.patrol_t=60
-    e.state="idle" sp_set_anim(e,a_spi)
-   end
   end
  end
 end
@@ -1193,21 +1303,6 @@ function update_ents()
  end
 end
 
-function draw_ent(a,f,sx,sy)
- local buf,bx,by,bw,bh=get_frame(a,f)
- if bw==0 then return end
- local idx=1
- for y=0,bh-1 do
-  for x=0,bw-1 do
-   local col=buf[idx]
-   if col~=trans then
-    pset(sx+bx+x,sy+by+y,col)
-   end
-   idx+=1
-  end
- end
-end
-
 function p8print(str,x,y,col,sp)
  col=col or 7
  sp=sp or 1
@@ -1237,25 +1332,27 @@ function draw_ents()
   if e.type==3 then
    local sx=e.x-cam_x
    local sy=e.y-cam_y
-   local flip=e.facing==-1
-   local ax=(sp_anc[e.anim] and sp_anc[e.anim][e.frame]) or spider_cw\2
-   local dx
-   if flip then
-    dx=sx-(spider_cw-1-ax)
-   else
-    dx=sx-ax
-   end
-   draw_char(e.anim,e.frame,dx,sy,flip)
+   local flip=e.mdir==-1
+   local rot=sp_rot[e.surf+1]
+   draw_char(e.anim,e.frame,sx,sy,flip,rot)
    -- antenna blink during idle
    if e.anim==a_spi and (e.anim_t\4)%2==0 then
     local bx=flip and 7 or 8
-    pset(dx+bx,sy+12,8)
+    local bpx,bpy=bx,12
+    if rot==1 then
+     bpx,bpy=spider_cw-1-bpy,bx
+    elseif rot==2 then
+     bpx,bpy=spider_cw-1-bx,spider_cw-1-bpy
+    elseif rot==3 then
+     bpx,bpy=bpy,spider_cw-1-bx
+    end
+    pset(sx+bpx,sy+bpy,8)
    end
   else
    local sx=e.tx*16-cam_x
    local sy=e.ty*16-cam_y
    if e.type==1 then sx-=16 end
-   draw_ent(e.anim,e.frame,sx,sy)
+   draw_char(e.anim,e.frame,sx,sy)
   end
  end
 end
