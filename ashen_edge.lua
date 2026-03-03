@@ -179,6 +179,7 @@ sp_anc={}
 
 function decode_anim(ai)
  local frames={}
+ local hp=ai.bpp<4 and #ai.pal>0
  if ai.atype==5 then
   for f=1,ai.nf do
    local foff=pk2(ai.fo_off+(f-1)*2)
@@ -187,48 +188,36 @@ function decode_anim(ai)
    if bw==0 then
     frames[f]={"",0,0,0,0}
    else
-    local d=decode_eg2(fa+4,bw*bh,ai.bpp,bw)
-    if ai.bpp<4 and #ai.pal>0 then
-     for i=1,#d do d[i]=ai.pal[d[i]+1] or trans end
-    end
-    frames[f]={chr(unpack(d)),bx,by,bw,bh}
+    frames[f]={decode_eg2(fa+4,bw*bh,ai.bpp,bw),bx,by,bw,bh}
    end
   end
-  return frames
- end
- local npix=ai.bw*ai.bh
- local zeros={}
- for i=1,npix do zeros[i]=0 end
- for f=1,ai.nf do
-  local ref=peek(ai.ref_off+f-1)
-  local foff=pk2(ai.fo_off+(f-1)*2)
-  local fa=ai.data_off+foff
-  if ref==254 then
-   -- per-frame bbox (type 6 hybrid)
-   local bx,by,bw,bh=peek(fa,4)
-   if bw==0 then
-    frames[f]={"",0,0,0,0}
+ else
+  local npix=ai.bw*ai.bh
+  local zeros={}
+  for i=1,npix do zeros[i]=0 end
+  for f=1,ai.nf do
+   local ref=peek(ai.ref_off+f-1)
+   local foff=pk2(ai.fo_off+(f-1)*2)
+   local fa=ai.data_off+foff
+   if ref==254 then
+    local bx,by,bw,bh=peek(fa,4)
+    if bw==0 then
+     frames[f]={"",0,0,0,0}
+    else
+     frames[f]={decode_eg2(fa+4,bw*bh,ai.bpp,bw),bx,by,bw,bh}
+    end
    else
-    local d=decode_eg2(fa+4,bw*bh,ai.bpp,bw)
-    if ai.bpp<4 and #ai.pal>0 then
-     for i=1,#d do d[i]=ai.pal[d[i]+1] or trans end
-    end
-    frames[f]={chr(unpack(d)),bx,by,bw,bh}
+    local d=decode_eg2(fa,npix,ai.bpp,ai.bw)
+    local base=ref==255 and zeros or frames[ref+1][1]
+    for i=1,npix do d[i]=d[i]^^base[i] end
+    frames[f]={d,ai.bx,ai.by,ai.bw,ai.bh}
    end
-  else
-   local d=decode_eg2(fa,npix,ai.bpp,ai.bw)
-   local base=ref==255 and zeros or frames[ref+1][1]
-   for i=1,npix do d[i]=d[i]^^base[i] end
-   frames[f]={d,ai.bx,ai.by,ai.bw,ai.bh}
   end
  end
- -- palette map + stringify (after all xor refs resolved)
  for f=1,#frames do
-  if type(frames[f][1])~="string" then
-   local d=frames[f][1]
-   if ai.bpp<4 and #ai.pal>0 then
-    for i=1,#d do d[i]=ai.pal[d[i]+1] or trans end
-   end
+  local d=frames[f][1]
+  if type(d)~="string" then
+   if hp then for i=1,#d do d[i]=ai.pal[d[i]+1] or trans end end
    frames[f][1]=chr(unpack(d))
   end
  end
