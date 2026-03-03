@@ -34,7 +34,7 @@ SWITCH_START_PNG = os.path.join(DIR, "assets", "save", "start up16x19.png")
 SWITCH_IDLE_PNG = os.path.join(DIR, "assets", "save", "idle 16x19.png")
 SWITCH_DOWN_PNG = os.path.join(DIR, "assets", "save", "down 16x19.png")
 TITLE_PNG = os.path.join(DIR, "assets", "title", "title.png")
-ALKHEMIKAL_TTF = os.path.join(DIR, "assets", "fonts", "alkhemikal_src.ttf")
+FONT_TTF = os.path.join(DIR, "assets", "fonts", "alkhemikal_src.ttf")
 SPIDER_DIR = os.path.join(DIR, "assets", "spider")
 SPIDER_W, SPIDER_H = 16, 16
 SPIDER_ANIMS = [
@@ -1877,7 +1877,7 @@ def build_cart():
     print(f"    title: 1 frame from {os.path.basename(TITLE_PNG)}")
 
     print("\nExtracting font frames...")
-    font_frames, font_cw, font_ch, font_adv = extract_font_frames(ALKHEMIKAL_TTF, 16, FONT_CHARS)
+    font_frames, font_cw, font_ch, font_adv = extract_font_frames(FONT_TTF, 13, FONT_CHARS)
     print(f"    alkhemikal: {len(font_frames)} chars, cell {font_cw}x{font_ch}")
 
     print("\nCompressing entity animations...")

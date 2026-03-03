@@ -12,7 +12,7 @@
 combo_chain={a_atk1,a_xslice}
 
 -- game state: 0=title, 1=play
-gs=1 tt=0 zt=nil
+gs=0 tt=0 zt=nil
 
 -- fade: v=0 clear, v=8 black, d=direction (1=out,-1=in,0=idle)
 fade_v=8 fade_d=-1 fade_t=0
@@ -1246,8 +1246,8 @@ function text_box(txt,cx,cy,col)
   lw[i]=p8print(l,0,0)
   if lw[i]>mw then mw=lw[i] end
  end
- local px,py=8,5
- local bh=font_ch*nl+py*2
+ local px,py,lh=8,5,font_ch-2
+ local bh=lh*nl+py*2
  local bx,by=cx-mw\2-px,cy-bh\2
  local bw=mw+px*2
  local s=box_s
@@ -1263,7 +1263,7 @@ function text_box(txt,cx,cy,col)
  local ty=by+py
  for i,l in ipairs(lines) do
   p8print(l,cx-lw[i]\2,ty,col)
-  ty+=font_ch
+  ty+=lh
  end
 end
 
@@ -1555,7 +1555,7 @@ function _draw()
   end
  else
   cls(1)
-  --draw_bg_layer()
+  draw_bg_layer()
   draw_main_layer()
   draw_ents()
   draw_sprojs()
@@ -1574,8 +1574,7 @@ function _draw()
   end
   draw_hp()
   print(gems,2,hp_h+4,8)
-  if zt then text_box(_zt[zt],64,100,7) end
-  printh(stat(1))
+  if zt then text_box(_zt[zt],64,108,7) end
  end
  apply_fade(fade_v)
 end
