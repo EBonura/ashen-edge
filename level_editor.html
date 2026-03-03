@@ -79,7 +79,7 @@ body { background: #1d2b53; color: #fff; font-family: monospace; display: flex; 
   </div>
   <div id="spawn-info">Spawn: not set</div>
   <div id="entity-panel" style="display:none; padding:8px; background:#1a1a1a; border-top:1px solid #333;">
-    <div style="display:flex;gap:4px;margin-bottom:6px;">
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px;">
       <button class="ent-type-btn active" data-etype="1" style="background:#ff6600;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Door</button>
       <button class="ent-type-btn" data-etype="2" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Switch</button>
       <button class="ent-type-btn" data-etype="3" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Spider</button>
@@ -89,16 +89,22 @@ body { background: #1d2b53; color: #fff; font-family: monospace; display: flex; 
       <button class="ent-type-btn" data-etype="7" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Torch</button>
       <button class="ent-type-btn" data-etype="8" style="background:#333;color:#fff;border:1px solid #555;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">TextZone</button>
     </div>
-    <div id="entity-props" style="display:none;">
-      <label style="font-size:11px">Group: <input type="number" id="entity-group" min="1" max="255" value="1"
-        style="width:50px;background:#333;color:#fff;border:1px solid #555;padding:2px;font-family:monospace;"></label>
-      <button id="entity-delete" style="margin-left:8px;background:#a00;color:#fff;border:none;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Delete</button>
-    </div>
+    <div id="entity-info" style="font-size:10px;color:#888;margin-top:4px;">Click to place entity</div>
+  </div>
+  <div id="entity-props" style="display:none; padding:8px; background:#1a1a1a; border-top:1px solid #333;">
+    <label style="font-size:11px">Group: <input type="number" id="entity-group" min="1" max="255" value="1"
+      style="width:50px;background:#333;color:#fff;border:1px solid #555;padding:2px;font-family:monospace;"></label>
+    <button id="entity-delete" style="margin-left:8px;background:#a00;color:#fff;border:none;cursor:pointer;padding:3px 8px;font-family:monospace;font-size:11px;">Delete</button>
     <div id="entity-text-edit" style="display:none;margin-top:4px;">
+      <div style="display:flex;gap:8px;margin-bottom:4px;">
+        <label style="font-size:11px">W: <input type="number" id="entity-ew" min="1" max="255" value="1"
+          style="width:40px;background:#333;color:#fff;border:1px solid #555;padding:2px;font-family:monospace;"></label>
+        <label style="font-size:11px">H: <input type="number" id="entity-eh" min="1" max="255" value="1"
+          style="width:40px;background:#333;color:#fff;border:1px solid #555;padding:2px;font-family:monospace;"></label>
+      </div>
       <label style="font-size:11px">Text:</label>
       <textarea id="entity-text" rows="3" style="width:100%;background:#333;color:#fff;border:1px solid #555;padding:4px;font-family:monospace;font-size:11px;resize:vertical;" placeholder="Zone text (use \n for newlines)"></textarea>
     </div>
-    <div id="entity-info" style="font-size:10px;color:#888;margin-top:4px;">Click to place entity</div>
   </div>
 </div>
 
@@ -214,6 +220,7 @@ let floatingTiles = null;   // captured tiles during selection move
 let floatingXform = null;   // captured xforms during selection move
 let spawnX = -1, spawnY = -1; // tile coords, -1 = not set
 let isDraggingEntity = null; // index into entities[] being dragged, or null
+let isResizingEntity = null; // index into entities[] being resized, or null
 let isDraggingSpawn = false; // true when dragging spawn point
 let dragObjStart = null;     // {x, y} tile at drag start
 
@@ -226,11 +233,31 @@ const ENT_TYPES = [
   { id: 5, name: "HellBot", w: 2, h: 2, color: "#ff004d", hasGroup: false },
   { id: 6, name: "Portal", w: 2, h: 1, color: "#29adff", hasGroup: false },
   { id: 7, name: "Torch",  w: 1, h: 1, color: "#ffa300", hasGroup: false },
-  { id: 8, name: "TextZone", w: 1, h: 1, color: "#ffccff", hasGroup: true }
+  { id: 8, name: "TextZone", w: 1, h: 1, color: "#ffccff", hasGroup: false, resizable: true }
 ];
 let entities = [];
 let selectedEntity = null;
 let entityPlaceType = 1;
+
+function showEntityProps(idx) {
+  const ent = entities[idx];
+  const ett = ENT_TYPES.find(t => t.id === ent.type);
+  document.getElementById("entity-group").value = ent.group;
+  document.getElementById("entity-group").closest("label").style.display = ett.hasGroup ? "" : "none";
+  document.getElementById("entity-props").style.display = "";
+  document.getElementById("entity-text-edit").style.display = ent.type === 8 ? "" : "none";
+  if (ent.type === 8) {
+    document.getElementById("entity-text").value = ent.text || "";
+    document.getElementById("entity-ew").value = ent.ew || 1;
+    document.getElementById("entity-eh").value = ent.eh || 1;
+  }
+  document.getElementById("entity-info").textContent = ent.type === 8 ? `${ett.name} ${ent.ew||1}x${ent.eh||1} at ${ent.x},${ent.y}` : ett.hasGroup ? `${ett.name} at ${ent.x},${ent.y} group ${ent.group}` : `${ett.name} at ${ent.x},${ent.y}`;
+}
+function hideEntityProps() {
+  document.getElementById("entity-props").style.display = "none";
+  document.getElementById("entity-text-edit").style.display = "none";
+  document.getElementById("entity-info").textContent = "Click to place entity";
+}
 
 let mapXform = [];
 let curRotation = 0; // 0-3 (0°, 90°, 180°, 270°)
@@ -704,7 +731,7 @@ function render() {
         const ent = entities[ei];
         const et = ENT_TYPES.find(t => t.id === ent.type);
         const ex = ent.x * ts, ey = ent.y * ts;
-        const ew = et.w * ts, eh = et.h * ts;
+        const ew = (ent.ew || et.w) * ts, eh = (ent.eh || et.h) * ts;
         ctx.fillStyle = et.color + "44";
         ctx.fillRect(ex, ey, ew, eh);
         ctx.strokeStyle = et.color;
@@ -731,6 +758,16 @@ function render() {
           ctx.setLineDash([4, 3]);
           ctx.strokeRect(ex, ey, ew, eh);
           ctx.setLineDash([]);
+          if (ent.type === 8) {
+            // resize handle at bottom-right corner
+            const hs = Math.max(6, ts * 0.4);
+            ctx.fillStyle = "#ff004d";
+            ctx.fillRect(ex + ew - hs, ey + eh - hs, hs, hs);
+            ctx.fillStyle = "#fff";
+            ctx.font = Math.max(8, hs - 2) + "px monospace";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle";
+            ctx.fillText("\u25e2", ex + ew - hs/2, ey + eh - hs/2);
+          }
         }
       }
       // link lines between same-group entities
@@ -941,16 +978,27 @@ wrap.addEventListener("mousedown", e => {
     // Check if clicking on an entity
     const clickedEntIdx = entities.findIndex(ent => {
       const ett = ENT_TYPES.find(t => t.id === ent.type);
-      return tx >= ent.x && tx < ent.x + ett.w && ty >= ent.y && ty < ent.y + ett.h;
+      const ew = ent.ew || ett.w, eh = ent.eh || ett.h;
+      return tx >= ent.x && tx < ent.x + ew && ty >= ent.y && ty < ent.y + eh;
     });
     if (clickedEntIdx >= 0) {
       pushUndo();
       selectedEntity = clickedEntIdx;
-      isDraggingEntity = clickedEntIdx;
-      dragObjStart = {x: tx, y: ty};
+      const ent = entities[clickedEntIdx];
+      const entW = ent.ew || ENT_TYPES.find(t=>t.id===ent.type).w;
+      const entH = ent.eh || ENT_TYPES.find(t=>t.id===ent.type).h;
+      if (ent.type === 8 && tx === ent.x + entW - 1 && ty === ent.y + entH - 1) {
+        isResizingEntity = clickedEntIdx;
+        dragObjStart = {x: tx, y: ty};
+      } else {
+        isDraggingEntity = clickedEntIdx;
+        dragObjStart = {x: tx, y: ty};
+      }
+      showEntityProps(clickedEntIdx);
       render(); return;
     } else {
       selectedEntity = null;
+      hideEntityProps();
     }
     // Check if clicking on spawn point (1 wide x 2 tall)
     if (spawnX >= 0 && tx === spawnX && ty >= spawnY && ty < spawnY + 2) {
@@ -977,34 +1025,32 @@ wrap.addEventListener("mousedown", e => {
     // Check if clicking existing entity
     const clickedIdx = entities.findIndex(ent => {
       const ett = ENT_TYPES.find(t => t.id === ent.type);
-      return tx >= ent.x && tx < ent.x + ett.w && ty >= ent.y && ty < ent.y + ett.h;
+      const ew = ent.ew || ett.w, eh = ent.eh || ett.h;
+      return tx >= ent.x && tx < ent.x + ew && ty >= ent.y && ty < ent.y + eh;
     });
     if (clickedIdx >= 0) {
       selectedEntity = clickedIdx;
-      isDraggingEntity = clickedIdx;
-      dragObjStart = {x: tx, y: ty};
       pushUndo();
       const ent = entities[clickedIdx];
-      const ett = ENT_TYPES.find(t => t.id === ent.type);
-      document.getElementById("entity-group").value = ent.group;
-      document.getElementById("entity-group").closest("label").style.display = ett.hasGroup ? "" : "none";
-      document.getElementById("entity-props").style.display = "";
-      document.getElementById("entity-text-edit").style.display = ent.type === 8 ? "" : "none";
-      if (ent.type === 8) document.getElementById("entity-text").value = ent.text || "";
-      document.getElementById("entity-info").textContent = ett.hasGroup ? `${ett.name} at ${ent.x},${ent.y} group ${ent.group}` : `${ett.name} at ${ent.x},${ent.y}`;
+      // Check if clicking resize handle (bottom-right corner of type 8)
+      const entW = ent.ew || ENT_TYPES.find(t=>t.id===ent.type).w;
+      const entH = ent.eh || ENT_TYPES.find(t=>t.id===ent.type).h;
+      if (ent.type === 8 && tx === ent.x + entW - 1 && ty === ent.y + entH - 1) {
+        isResizingEntity = clickedIdx;
+        dragObjStart = {x: tx, y: ty};
+      } else {
+        isDraggingEntity = clickedIdx;
+        dragObjStart = {x: tx, y: ty};
+      }
+      showEntityProps(clickedIdx);
     } else if (inBounds(tx, ty)) {
       pushUndo();
       const grp = et.hasGroup ? 1 : 0;
       const newEnt = { type: entityPlaceType, x: tx, y: ty, group: grp };
-      if (entityPlaceType === 8) newEnt.text = "";
+      if (entityPlaceType === 8) { newEnt.text = ""; newEnt.ew = 1; newEnt.eh = 1; }
       entities.push(newEnt);
       selectedEntity = entities.length - 1;
-      document.getElementById("entity-group").value = grp;
-      document.getElementById("entity-group").closest("label").style.display = et.hasGroup ? "" : "none";
-      document.getElementById("entity-props").style.display = "";
-      document.getElementById("entity-text-edit").style.display = entityPlaceType === 8 ? "" : "none";
-      if (entityPlaceType === 8) document.getElementById("entity-text").value = "";
-      document.getElementById("entity-info").textContent = et.hasGroup ? `${et.name} at ${tx},${ty} group 1` : `${et.name} at ${tx},${ty}`;
+      showEntityProps(selectedEntity);
     }
     render(); return;
   }
@@ -1027,6 +1073,17 @@ wrap.addEventListener("mousedown", e => {
 wrap.addEventListener("mousemove", e => {
   const [tx,ty] = screenToTile(e.clientX, e.clientY);
   if (isPanning) { panX=panStartPanX+(e.clientX-panStartX);panY=panStartPanY+(e.clientY-panStartY);canvas.style.left=panX+"px";canvas.style.top=panY+"px";return; }
+  if (isResizingEntity !== null && dragObjStart) {
+    const ent = entities[isResizingEntity];
+    const nw = Math.max(1, tx - ent.x + 1), nh = Math.max(1, ty - ent.y + 1);
+    if (nw !== (ent.ew||1) || nh !== (ent.eh||1)) {
+      ent.ew = nw; ent.eh = nh;
+      document.getElementById("entity-ew").value = nw;
+      document.getElementById("entity-eh").value = nh;
+      render();
+    }
+    return;
+  }
   if (isDraggingEntity !== null && dragObjStart) {
     const dx = tx - dragObjStart.x, dy = ty - dragObjStart.y;
     if (dx !== 0 || dy !== 0) {
@@ -1074,11 +1131,14 @@ wrap.addEventListener("mousemove", e => {
 });
 wrap.addEventListener("mouseup", e => {
   if (isPanning) { isPanning=false;wrap.style.cursor="crosshair";return; }
+  if (isResizingEntity !== null) {
+    isResizingEntity=null; dragObjStart=null; return;
+  }
   if (isDraggingEntity !== null) {
     if (selectedEntity !== null && entities[selectedEntity]) {
       const ent = entities[selectedEntity];
       const ett = ENT_TYPES.find(t => t.id === ent.type);
-      document.getElementById("entity-info").textContent = `${ett.name} at ${ent.x},${ent.y} group ${ent.group}`;
+      document.getElementById("entity-info").textContent = ent.type === 8 ? `${ett.name} ${ent.ew||1}x${ent.eh||1} at ${ent.x},${ent.y}` : `${ett.name} at ${ent.x},${ent.y} group ${ent.group}`;
     }
     isDraggingEntity=null; dragObjStart=null; return;
   }
@@ -1107,6 +1167,8 @@ wrap.addEventListener("mouseleave", () => { isDrawing=false; });
 
 // Keyboard
 document.addEventListener("keydown", e => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") return;
   if (e.code==="Space") { spaceDown=true;e.preventDefault(); }
   if (e.ctrlKey||e.metaKey) {
     if (e.code==="KeyZ"&&!e.shiftKey) { e.preventDefault();undo(); }
@@ -1131,8 +1193,8 @@ document.addEventListener("keydown", e => {
   if (e.code==="KeyP") setTool("spawn");
   if (e.code==="KeyS"&&currentTool!=="select") setTool("select");
   if (e.code==="KeyN") setTool("entity");
-  if (e.code==="Escape") { clearSelection(); selectedEntity=null; if (currentTool==="entity") { document.getElementById("entity-props").style.display="none"; } render(); }
-  if ((e.code==="Delete"||e.code==="Backspace")&&selectedEntity!==null) { e.preventDefault(); pushUndo(); entities.splice(selectedEntity,1); selectedEntity=null; document.getElementById("entity-props").style.display="none"; render(); }
+  if (e.code==="Escape") { clearSelection(); selectedEntity=null; hideEntityProps(); render(); }
+  if ((e.code==="Delete"||e.code==="Backspace")&&selectedEntity!==null) { e.preventDefault(); pushUndo(); entities.splice(selectedEntity,1); selectedEntity=null; hideEntityProps(); render(); }
   else if ((e.code==="Delete"||e.code==="Backspace")&&selection) { e.preventDefault(); clearSelectionArea(); }
   if (e.code==="Tab") { e.preventDefault();toggleGrid(); }
   if (e.code==="KeyF") toggleFlagsOverlay();
@@ -1144,7 +1206,7 @@ document.addEventListener("keyup", e => { if (e.code==="Space") spaceDown=false;
 // Tools
 function setTool(t) {
   if (currentTool==="select" && t!=="select") clearSelection();
-  if (t!=="entity") { selectedEntity=null; document.getElementById("entity-props").style.display="none"; }
+  if (t!=="entity" && t!=="select") { selectedEntity=null; hideEntityProps(); }
   currentTool=t;
   ["pencil","rect","fill","eraser","spawn","select","entity"].forEach(n => document.getElementById("tool-"+n).classList.toggle("active",n===t));
   document.getElementById("entity-panel").style.display = t==="entity" ? "" : "none";
@@ -1176,14 +1238,24 @@ document.getElementById("entity-text").addEventListener("input", () => {
     render();
   }
 });
+document.getElementById("entity-ew").addEventListener("change", () => {
+  if (selectedEntity !== null && entities[selectedEntity] && entities[selectedEntity].type === 8) {
+    entities[selectedEntity].ew = Math.max(1, parseInt(document.getElementById("entity-ew").value) || 1);
+    render();
+  }
+});
+document.getElementById("entity-eh").addEventListener("change", () => {
+  if (selectedEntity !== null && entities[selectedEntity] && entities[selectedEntity].type === 8) {
+    entities[selectedEntity].eh = Math.max(1, parseInt(document.getElementById("entity-eh").value) || 1);
+    render();
+  }
+});
 document.getElementById("entity-delete").addEventListener("click", () => {
   if (selectedEntity !== null) {
     pushUndo();
     entities.splice(selectedEntity, 1);
     selectedEntity = null;
-    document.getElementById("entity-props").style.display = "none";
-    document.getElementById("entity-text-edit").style.display = "none";
-    document.getElementById("entity-info").textContent = "Click to place entity";
+    hideEntityProps();
     render();
   }
 });
@@ -1288,6 +1360,8 @@ function getLevelData() {
     if (e.type === 8) {
       texts.push(e.text || "");
       out.group = texts.length; // 1-based index into _zt
+      out.ew = e.ew || 1;
+      out.eh = e.eh || 1;
     }
     return out;
   });
@@ -1348,7 +1422,7 @@ function applyLevelData(d) {
   const loadedTexts = d.texts || [];
   entities = (d.entities || []).map(e => {
     const ent = {type: e.type, x: e.x, y: e.y, group: e.group};
-    if (e.type === 8) ent.text = loadedTexts[e.group - 1] || "";
+    if (e.type === 8) { ent.text = loadedTexts[e.group - 1] || ""; ent.ew = e.ew || 1; ent.eh = e.eh || 1; }
     return ent;
   });
   selectedEntity = null;

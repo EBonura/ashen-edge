@@ -12,7 +12,7 @@
 combo_chain={a_atk1,a_xslice}
 
 -- game state: 0=title, 1=play
-gs=0 tt=0 zt=nil
+gs=1 tt=0 zt=nil
 
 -- fade: v=0 clear, v=8 black, d=direction (1=out,-1=in,0=idle)
 fade_v=8 fade_d=-1 fade_t=0
@@ -400,7 +400,11 @@ function load_tiles()
  for i=1,ne do
   local a,b,c,d=peek(p,4)
   local e={type=a,tx=b,ty=c,group=d}
-  add(ents,e) p+=4
+  p+=4
+  if a==8 then
+   e.tw=peek(p) e.th=peek(p+1) p+=2
+  end
+  add(ents,e)
   ent_grp[d]=ent_grp[d] or {}
   add(ent_grp[d],#ents)
  end
@@ -1202,7 +1206,7 @@ function update_ents()
     e.active=true
     ckpt_x=e.x ckpt_y=e.y
    end
-  elseif e.type==8 and e.tx==px\16 and e.ty==py\16 then
+  elseif e.type==8 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
    zt=e.group
   elseif e.type<=5 then
    update_bot(e)
@@ -1572,4 +1576,5 @@ function _draw()
   if zt then text_box(_zt[zt],64,100,7) end
  end
  apply_fade(fade_v)
+ printh(stat(1))
 end

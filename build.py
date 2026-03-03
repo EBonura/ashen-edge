@@ -1655,13 +1655,19 @@ def build_level_data(tileset, bg_tileset, map_data):
 
     # Step 5b: Append entity data after layer data
     map_section.append(len(entities))
+    ent_bytes = 0
     for ent in entities:
         map_section.append(ent.get("type", 1) & 0xFF)
         map_section.append(ent.get("x", 0) & 0xFF)
         map_section.append(ent.get("y", 0) & 0xFF)
         map_section.append(ent.get("group", 1) & 0xFF)
+        ent_bytes += 4
+        if ent.get("type") == 8:
+            map_section.append(ent.get("ew", 1) & 0xFF)
+            map_section.append(ent.get("eh", 1) & 0xFF)
+            ent_bytes += 2
     if entities:
-        print(f"  Entities: {len(entities)} ({1 + len(entities) * 4}b)")
+        print(f"  Entities: {len(entities)} ({1 + ent_bytes}b)")
 
     total_bytes = len(map_section)
     print(f"  Total __map__: {total_bytes}/4096 bytes ({total_bytes*100//4096}%)")
@@ -2511,7 +2517,7 @@ def build_cart():
             ld = json.load(f)
         zone_texts = ld.get("texts", [])
     if zone_texts:
-        escaped = [t.replace("\\", "\\\\").replace('"', '\\"') for t in zone_texts]
+        escaped = [t.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n") for t in zone_texts]
         txt_entries = ",".join(f'"{t}"' for t in escaped)
         gen_lines.append(f"_zt={{{txt_entries}}}")
         print(f"\n  Zone texts: {len(zone_texts)} entries")
