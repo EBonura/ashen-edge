@@ -1465,25 +1465,23 @@ def encode_packbits(cell_grid, map_w, map_h):
 
 def encode_layer(cell_grid, map_w, map_h, label=""):
     """Try all encoding modes, return (mode, data_bytes, description)."""
-    # Mode 0: Standard RLE
-    rle = encode_rle(cell_grid, map_w, map_h)
-    best_mode, best_data = 0, rle
-    desc = f"RLE {len(rle)}b"
-
     # Mode 1: Tiled fill
     tiling = detect_tiling(cell_grid, map_w, map_h)
-    if tiling and tiling[0] < len(best_data):
+    if tiling:
         cost, tw, th, dx, dy, rw, rh, cells = tiling
         data = bytearray([tw, th, dx, dy, rw, rh])
         data.extend(cells)
         best_mode, best_data = 1, data
-        desc = f"TiledFill {tw}x{th} at ({dx},{dy}) {rw}x{rh} = {len(data)}b (RLE was {len(rle)}b)"
+        desc = f"TiledFill {tw}x{th} at ({dx},{dy}) {rw}x{rh} = {len(data)}b"
+    else:
+        best_mode, best_data = None, None
+        desc = ""
 
     # Mode 2: PackBits
     packbits = encode_packbits(cell_grid, map_w, map_h)
-    if len(packbits) < len(best_data):
+    if best_data is None or len(packbits) < len(best_data):
         best_mode, best_data = 2, packbits
-        desc = f"PackBits {len(packbits)}b (RLE was {len(rle)}b)"
+        desc = f"PackBits {len(packbits)}b"
 
     return best_mode, best_data, desc
 
