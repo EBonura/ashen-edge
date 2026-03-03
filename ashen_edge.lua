@@ -242,10 +242,11 @@ function cache_anims()
  hp_buf=decode_anim(ai)[1][1]
 end
 
-function hurt_plr()
+function hurt_plr(kx)
  if plr_inv==0 and state~="death" then
   plr_hp-=1
   plr_inv=60
+  vx,vy=kx or 0,-1.5
   if plr_hp<=0 then
    vx,vy=0,0
    set_anim(a_death,"death")
@@ -670,13 +671,16 @@ end
 function update_parts()
  for p in all(parts) do
   p.x+=p.vx p.y+=p.vy
+  if tile_flag(p.x\16,p.y\16)&9>0 then
+   p.y-=p.vy p.vy*=-0.4 p.vx*=0.7
+  end
   p.vy+=0.15
   p.age+=1
   if p.c then
    if p.age>30 then del(parts,p) end
   elseif p.age>15 and abs(p.x-px)<10 and abs(p.y-py-11)<10 then
    gems+=1 del(parts,p)
-  elseif p.age>90 then del(parts,p)
+  elseif p.age>900 then del(parts,p)
   end
  end
 end
@@ -1036,14 +1040,14 @@ function update_bot(e)
  elseif s=="fdash" then
   e.vx=e.mdir*3
   if abs(px-e.x)<18 and abs(py+11-e.y+12)<16 then
-   hurt_plr()
+   hurt_plr(e.x<px and 2 or -2)
   end
   if t and af(e,nf) then
    e.vx,e.atk_cd=0,120 go_idle(e,abi,60)
   end
  elseif s=="attack" then
   if t then
-   if ff(e) and dist<28 and abs(ddy)<24 then hurt_plr() end
+   if ff(e) and dist<28 and abs(ddy)<24 then hurt_plr(e.x<px and 2 or -2) end
    if af(e,nf) then
     e.fired,e.atk_cd=false,60
     go_idle(e,abi,30)
@@ -1071,7 +1075,7 @@ function update_sprojs()
    elseif p.x>px-3 and p.x<px+3
     and p.y>py+3 and p.y<py+19 then
     p.exp,p.et=true,0
-    hurt_plr()
+    hurt_plr(p.dx>0 and 2 or -2)
    -- off screen
    elseif p.x<cam_x-8 or p.x>cam_x+136
     or p.y<cam_y-8 or p.y>cam_y+136 then
@@ -1108,6 +1112,10 @@ function update_ents()
   elseif e.type==6 or e.type==7 and e.lit then
    local t,nf=ent_tick(e,6)
    if t then e.frame=e.frame%(e.type==7 and 6 or nf)+1 end
+   if e.type==7 and e.lit and abs(px-e.x-8)<11 and abs(py+11-e.y-8)<14 then
+    local k=e.x+8<px and 2 or -2
+    hurt_plr(k) vx=k
+   end
   elseif e.type==8 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
    zt=e.group
   elseif e.type<=5 then

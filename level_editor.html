@@ -161,7 +161,7 @@ body { background: #1d2b53; color: #fff; font-family: monospace; display: flex; 
   <div id="status">
     <span id="st-pos">-</span>
     <span id="st-tile">-</span>
-    <span id="st-zoom">Zoom: 1.5x</span>
+    <button id="zoom-out" style="background:#333;color:#aaa;border:1px solid #555;cursor:pointer;padding:2px 8px;font-family:monospace">-</button><input id="zoom-slider" type="range" min="5" max="60" value="15" step="1" style="width:80px;vertical-align:middle"><button id="zoom-in" style="background:#333;color:#aaa;border:1px solid #555;cursor:pointer;padding:2px 8px;font-family:monospace">+</button><span id="st-zoom" style="font-size:11px">1.5x</span>
     <span id="st-size">-</span>
     <span id="st-xform">Xform: none</span>
     <span id="st-mode">Mode: single</span>
@@ -785,6 +785,8 @@ function render() {
       // link lines between same-group entities
       const groupMap = {};
       for (const ent of entities) {
+        const et = ENT_TYPES.find(t => t.id === ent.type);
+        if (!et || !et.hasGroup) continue;
         if (!groupMap[ent.group]) groupMap[ent.group] = [];
         groupMap[ent.group].push(ent);
       }
@@ -892,7 +894,8 @@ function render() {
 }
 
 function updateStatus() {
-  document.getElementById("st-zoom").textContent = "Zoom: " + zoom.toFixed(1) + "x";
+  document.getElementById("st-zoom").textContent = zoom.toFixed(1) + "x";
+  document.getElementById("zoom-slider").value = Math.round(zoom * 10);
   document.getElementById("st-size").textContent = "Map: " + mapW + "x" + mapH + " (" + (mapW*mapH) + " cells)";
 }
 
@@ -1169,11 +1172,11 @@ wrap.addEventListener("mouseup", e => {
 wrap.addEventListener("dblclick", e => {
   e.preventDefault(); isPanning=true;panStartX=e.clientX;panStartY=e.clientY;panStartPanX=panX;panStartPanY=panY;wrap.style.cursor="grabbing";
 });
-wrap.addEventListener("wheel", e => {
-  e.preventDefault(); const oldZoom=zoom;
-  if (e.deltaY<0) zoom=Math.min(6,zoom*1.15); else zoom=Math.max(0.5,zoom/1.15);
-  if (zoom!==oldZoom) { const rect=wrap.getBoundingClientRect();const mx=e.clientX-rect.left;const my=e.clientY-rect.top;const s=zoom/oldZoom;panX=mx-s*(mx-panX);panY=my-s*(my-panY);render(); }
-}, {passive:false});
+function setZoom(newZ){const oldZoom=zoom;zoom=Math.max(0.5,Math.min(6,newZ));const rect=wrap.getBoundingClientRect();const cx=rect.width/2,cy=rect.height/2;const s=zoom/oldZoom;panX=cx-s*(cx-panX);panY=cy-s*(cy-panY);document.getElementById("zoom-slider").value=Math.round(zoom*10);document.getElementById("st-zoom").textContent=zoom.toFixed(1)+"x";render();}
+document.getElementById("zoom-out").addEventListener("click",()=>setZoom(zoom-0.5));
+document.getElementById("zoom-in").addEventListener("click",()=>setZoom(zoom+0.5));
+document.getElementById("zoom-slider").addEventListener("input",e=>setZoom(e.target.value/10));
+wrap.addEventListener("wheel", e => { e.preventDefault(); }, {passive:false});
 wrap.addEventListener("contextmenu", e => { e.preventDefault(); isDrawing=false; render(); });
 wrap.addEventListener("mouseleave", () => { isDrawing=false; });
 
@@ -1455,7 +1458,7 @@ function applyLevelData(d) {
   entities = (d.entities || []).map(e => {
     const ent = {type: e.type, x: e.x, y: e.y, group: e.group};
     if (e.type === 2 || e.type === 6) { ent.cost = e.cost || 0; }
-    if (e.type === 8) { ent.text = loadedTexts[e.group - 1] || ""; ent.ew = e.ew || 1; ent.eh = e.eh || 1; }
+    if (e.type === 8) { ent.text = loadedTexts[e.group - 1] || ""; ent.ew = e.ew || 1; ent.eh = e.eh || 1; ent.group = 0; }
     return ent;
   });
   selectedEntity = null;
