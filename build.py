@@ -91,7 +91,7 @@ TORCH_SRC = os.path.join(DIR, "assets", "torch", "Torch 16x16.png")
 TORCH_W, TORCH_H = 16, 16
 
 FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!.,:-'?/()" \
-             + chr(139) + chr(148) + chr(145) + chr(131) + chr(142) + chr(151)  # ⬅⬆➡⬇🅾❎
+             + chr(151) + chr(142) + chr(148) + chr(131) + chr(139) + chr(145)  # ❎🅾⬆⬇⬅➡
 TILE_SIZE = 16
 TILESET_COLS = 18
 TILESET_ROWS = 16
