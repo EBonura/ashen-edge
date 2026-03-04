@@ -53,9 +53,9 @@ textarea { border-radius: 4px; }
 /* Flag editor */
 #flag-editor { padding: 8px; background: var(--bg-panel); border-top: 1px solid var(--bg-btn); }
 #flag-editor label { font-size: 11px; }
-#flag-buttons { display: flex; gap: 3px; margin-top: 4px; }
-#flag-buttons button { width: 24px; height: 24px; font-size: 12px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-btn); color: var(--text); }
-#flag-buttons button.active { background: var(--accent); border-color: var(--accent); }
+#flag-buttons { display: flex; gap: 3px; margin-top: 4px; flex-wrap: wrap; }
+#flag-buttons button { padding: 2px 6px; height: 22px; font-size: 10px; cursor: pointer; border: 1px solid var(--border); background: var(--bg-btn); color: var(--text); border-radius: 3px; }
+#flag-buttons button.active { background: var(--accent); border-color: var(--accent); color: #000; }
 #spawn-info { padding: 4px 8px; font-size: 11px; color: #0f0; background: var(--bg-panel); border-top: 1px solid var(--bg-btn); }
 
 /* Toolbar (right sidebar) */
@@ -1056,10 +1056,12 @@ function updateFlagEditor() {
   });
 }
 
+const FLAG_NAMES = ["Solid","Platform","Gem","Destructible","Hazard","","",""];
 function buildFlagButtons() {
   const container = document.getElementById("flag-buttons");
   for (let i = 0; i < 8; i++) {
-    const btn = document.createElement("button"); btn.textContent = i; btn.dataset.val = i;
+    if (!FLAG_NAMES[i]) continue;
+    const btn = document.createElement("button"); btn.textContent = FLAG_NAMES[i]; btn.dataset.val = i;
     btn.addEventListener("click", () => {
       const mask = 1 << i;
       // if all selected have it, clear; otherwise set
@@ -1076,11 +1078,12 @@ function buildFlagButtons() {
   }
 }
 
+const FLAG_SHORT = ["S","P","G","D","H","","",""];
 function flagsLabel(f) {
   if (!f) return "";
   const bits = [];
-  for (let i = 0; i < 8; i++) if (f & (1 << i)) bits.push(i);
-  return bits.join(",");
+  for (let i = 0; i < 8; i++) if (f & (1 << i)) bits.push(FLAG_SHORT[i]||i);
+  return bits.join("");
 }
 
 function updateSpawnInfo() {
@@ -1941,8 +1944,8 @@ function applyLevelData(d) {
   const loadedTexts = d.texts || [];
   entities = (d.entities || []).map(e => {
     const ent = {type: e.type, x: e.x, y: e.y, group: e.group};
-    if (e.type === 2 || e.type === 6) { ent.cost = e.cost || 0; }
-    if (e.type === 8) { ent.text = loadedTexts[e.group - 1] || ""; ent.ew = e.ew || 1; ent.eh = e.eh || 1; ent.group = 0; }
+    if (e.type === 2 || e.type === 3) { ent.cost = e.cost || 0; }
+    if (e.type === 5) { ent.text = loadedTexts[e.group - 1] || ""; ent.ew = e.ew || 1; ent.eh = e.eh || 1; ent.group = 0; }
     return ent;
   });
   selectedEntity = null;
