@@ -760,8 +760,7 @@ def _eg2_encode_frame(pixels, bpp, w, h):
     best_bytes = None
     best_mode = 0
     best_order = 2
-    _eg2_allowed = getattr(sys.modules[__name__], '_eg2_allowed_modes', range(5))
-    for mode in _eg2_allowed:
+    for mode in (0, 4):
         if mode == 4:
             diff = _apply_paeth(pixels, w, h)
         else:

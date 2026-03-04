@@ -121,17 +121,7 @@ function decode_eg2(off,npix,bpp,w)
    if pb==bpp then buf[pi],pv,pb=pv,0,0 pi+=1 end
   end
  end
- if mode==1 then
-  for i=2,npix do
-   if (i-1)%w>0 then buf[i]=buf[i]^^buf[i-1] end
-  end
- elseif mode==2 then
-  for i=w+1,npix do buf[i]=buf[i]^^buf[i-w] end
- elseif mode==3 then
-  for i=w+2,npix do
-   if (i-1)%w>0 then buf[i]=buf[i]^^buf[i-w-1] end
-  end
- elseif mode==4 then
+ if mode==4 then
   for i=2,npix do
    local x=(i-1)%w
    local a,b,c=x>0 and buf[i-1] or 0,i>w and buf[i-w] or 0,x>0 and i>w and buf[i-w-1] or 0
@@ -357,21 +347,22 @@ function load_tiles()
   tpal[i]=c
  end
  local sp=p+1+tnp\2 local ss=pk2(sp) sp+=2
- local function wt(off,n,pal,bg)
+ local function wt(off,n,pal,t0)
   local b=decode_eg2(off,n*256,tbpp,16) local ai=1
   for t=0,n-1 do for py=0,15 do
-   local d=bg and 0x8000+t*128+py*8 or(t\8*16+py)*64+t%8*8
+   local d=0x8000+(t0+t)*128+py*8
    for px=0,7 do
     poke(d+px,(pal[b[ai]]&0xf)|(pal[b[ai+1]]&0xf)<<4) ai+=2
    end
   end end
  end
- wt(sp,lvl_nst,tpal) wt(sp+ss,nt-lvl_nst,tpal,1)
+ wt(sp,lvl_nst,tpal,0) wt(sp+ss,nt-lvl_nst,tpal,lvl_nst)
  p+=pk2(map_base+10)
  for L=1,nl do
   local lsz=pk2(map_base+10+L*2)
   local lbpp=peek(p)
   mdat[L]=decode_eg2(p+1,sz,lbpp,lvl_w)
+  if L~=2 then for i=1,sz do mdat[L][i]*=4 end end
   p+=lsz
  end
  local ne=peek(p) p+=1
@@ -455,39 +446,22 @@ function tr(cx,cy)
  return x,y,min(lvl_w-1,x+8),min(lvl_h-1,y+8)
 end
 
-function draw_mem_layer(L)
+function dspr(c,x,y)
+ local src=0x8000+(c\4-1)*128
+ for py=0,15 do memcpy(0x1c38+py*64,src+py*8,8) end
+ spr(238,x,y,2,2,c&2>0,c&1>0)
+end
+
+function draw_layer(L)
  local md=mdat[L]
  if not md then return end
  local p=lplx[L]
- local cx,cy=flr(pax+dcx*p)\2*2,flr(pay+dcy*p)
+ local cx,cy=flr(pax+dcx*p),flr(pay+dcy*p)
  local tx0,ty0,tx1,ty1=tr(cx,cy)
  for ty=ty0,ty1 do
   for tx=tx0,tx1 do
    local c=md[ty*lvl_w+tx+1]
-   if c>0 then
-    local src=0x8000+(c-lvl_nst-1)*128
-    for py=0,15 do memcpy(0x1c38+py*64,src+py*8,8) end
-    spr(238,tx*16-cx,ty*16-cy,2,2)
-   end
-  end
- end
-end
-
-function tspr(c,x,y)
- local t=c\4
- spr((t-1)\8*32+(t-1)%8*2,x,y,2,2,c&2>0,c&1>0)
-end
-
-function draw_main_layer()
- local md=mdat[2]
- if not md then return end
- local p=lplx[2]
- local cx,cy=pax+dcx*p,pay+dcy*p
- local tx0,ty0,tx1,ty1=tr(cx,cy)
- for ty=ty0,ty1 do
-  for tx=tx0,tx1 do
-   local c=md[ty*lvl_w+tx+1]
-   if c>0 then tspr(c,tx*16-cx,ty*16-cy) end
+   if c>0 then dspr(c,tx*16-cx,ty*16-cy) end
   end
  end
 end
@@ -1451,9 +1425,9 @@ function _draw()
   end
  else
   cls(lvl_bg)
-  draw_mem_layer(3)
-  draw_mem_layer(1)
-  draw_main_layer()
+  draw_layer(3)
+  draw_layer(1)
+  draw_layer(2)
   draw_ents()
   draw_sprojs()
   local acw=acache[cur_anim].cw
@@ -1467,7 +1441,7 @@ function _draw()
   end
   for p in all(parts) do
    local qx,qy=p.x-cam_x,p.y-cam_y
-   if p.c then tspr(p.c,qx,qy)
+   if p.c then dspr(p.c,qx,qy)
    elseif p.cl then pset(qx,qy,p.cl)
    else circfill(qx,qy,2,8) circfill(qx-1,qy-1,1,14) end
   end
@@ -1480,4 +1454,5 @@ function _draw()
   if zt then text_box(_zt[zt],64,108,7) end
  end
  apply_fade(fade_v)
+ printh(stat(1))
 end
