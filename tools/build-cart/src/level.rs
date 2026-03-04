@@ -9,7 +9,6 @@ use std::path::Path;
 use crate::config::*;
 use crate::eg2::eg2_encode_frame;
 use crate::frame::{pack_palette, quantize_pixels};
-use crate::macrotile::encode_layer_macro;
 use crate::tileset::{apply_transform, remap_tile_image};
 
 #[derive(Deserialize)]
@@ -484,17 +483,9 @@ pub fn build_level_data(
 
         let label = layer_names[l];
 
-        // Try macro-tile encoding for all layers
-        let (macro_data, macro_desc) = encode_layer_macro(&cell_grid, map_w, map_h, label);
         let (normal_data, normal_desc) = encode_layer(&cell_grid, map_w, map_h, label);
-
-        if macro_data.len() < normal_data.len() {
-            eprintln!("  Layer {} ({}): {} (vs normal: {})", l, label, macro_desc, normal_desc);
-            layer_data.push(macro_data);
-        } else {
-            eprintln!("  Layer {} ({}): {}", l, label, normal_desc);
-            layer_data.push(normal_data);
-        }
+        eprintln!("  Layer {} ({}): {}", l, label, normal_desc);
+        layer_data.push(normal_data);
     }
 
     // Step 5: Pack into binary format

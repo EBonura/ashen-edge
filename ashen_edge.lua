@@ -20,10 +20,7 @@ fade_v,fade_d,fade_t=8,-1,0
 -- flat: row c = indices (c-1)*8+1..(c-1)*8+8, access via fdp[(c-1)*8+v]
 fdp=split"1,1,1,1,0,0,0,0,2,2,2,1,1,0,0,0,3,3,4,5,2,1,1,0,4,4,2,2,1,1,1,0,5,5,2,2,1,1,1,0,6,6,13,5,2,1,1,0,7,7,6,13,5,2,1,0,8,8,9,4,5,2,1,0,9,9,4,5,2,1,1,0,10,15,9,4,5,2,1,0,11,11,3,4,5,2,1,0,12,12,13,5,5,2,1,0,13,13,5,5,2,1,1,0,14,9,9,4,5,2,1,0,15,14,9,4,5,2,1,0"
 function apply_fade(v)
- if v==0 then
-  for c=0,15 do pal(c,c,1) end
-  return
- end
+ if v==0 then pal(1) return end
  for c=1,15 do pal(c,fdp[(c-1)*8+v],1) end
  pal(0,0,1)
 end
@@ -296,6 +293,8 @@ function set_anim(a,s)
  if s then state=s end
 end
 
+function to_idle() set_anim(a_idle,"idle") end
+function to_land() set_anim(a_land,"land") end
 function anim_done(m)
  local nf=acache[cur_anim].ai.nf
  return cur_frame>=nf
@@ -354,29 +353,7 @@ function load_tiles()
  p+=pk2(map_base+10)
  for L=1,nl do
   local lsz=pk2(map_base+10+L*2)
-  if peek(p)==0xff then
-   local bw,bh,ox,oy=peek(p+1,4)
-   local nb=pk2(p+5) local bds=pk2(p+7) local np=peek(p+9)
-   local pp=p+10
-   local pal if np>0 then pal={} for i=0,np-1 do pal[i]=peek(pp+i) end end pp+=np
-   local bd=decode_eg2(pp+1,nb*bw*bh,peek(pp),bw) pp+=bds
-   if pal then for i=1,#bd do bd[i]=pal[bd[i]] end end
-   local mw=(lvl_w+ox+bw-1)\bw local mh=(lvl_h+oy+bh-1)\bh
-   local mm=decode_eg2(pp+1,mw*mh,peek(pp),mw)
-   local d={} for i=1,sz do d[i]=0 end
-   for mi=0,mw*mh-1 do
-    local bi=mm[mi+1]*bw*bh local mx=mi%mw*bw-ox local my=mi\mw*bh-oy
-    for dy=0,bh-1 do for dx=0,bw-1 do
-     local y,x=my+dy,mx+dx
-     if y>=0 and y<lvl_h and x>=0 and x<lvl_w then
-      d[y*lvl_w+x+1]=bd[bi+dy*bw+dx+1]
-     end
-    end end
-   end
-   mdat[L]=d
-  else
-   mdat[L]=decode_eg2(p+1,sz,peek(p),lvl_w)
-  end
+  mdat[L]=decode_eg2(p+1,sz,peek(p),lvl_w)
   if L~=2 then for i=1,sz do mdat[L][i]*=4 end end
   p+=lsz
  end
@@ -426,7 +403,7 @@ function land_on(y_top)
   grounded=true
   air_time=0
   if state=="fall" then
-   set_anim(a_land,"land")
+   to_land()
   end
  end
 end
@@ -496,7 +473,7 @@ function reset_game()
  px,py=ckpt_x,ckpt_y
  safe_x,safe_y=px,py
  vx,vy=0,0
- set_anim(a_idle,"idle")
+ to_idle()
  grounded,death_t=true,0
  gems,sprojs=0,{}
  ents,ent_grp={},{}
@@ -797,8 +774,8 @@ end
 
 function ff(e) if e.frame==3 and not e.fired then e.fired=true return true end end
 
-function go_idle(e,a,pt)
- sp_set_anim(e,a,"idle")
+function go_idle(e,pt)
+ sp_set_anim(e,e.ia,"idle")
  e.patrol_t=pt
 end
 
@@ -909,13 +886,13 @@ function update_enemy(e)
  tc(e)
  local t,nf=ent_tick(e,spd)
  if s=="hit" then
-  if t and af(e,nf) then go_idle(e,e.ia,60) end
+  if t and af(e,nf) then go_idle(e,60) end
  elseif s=="shoot" then
   if t then
    if ff(e) then fire_at(e.x+e.fx,e.y+e.fy,e.fs) end
    if af(e,nf) then
     e.fired,e.atk_cd=false,e.scd
-    go_idle(e,e.ia,e.spt)
+    go_idle(e,e.spt)
    end
   end
  elseif s=="sleep" then
@@ -925,7 +902,7 @@ function update_enemy(e)
    else sp_set_anim(e,e.ia,"idle") end
   end
  elseif s=="wake" then
-  if t and af(e,nf) then go_idle(e,e.ia,30) end
+  if t and af(e,nf) then go_idle(e,30) end
  elseif s=="charge" then
   if e.type==7 then
    if t and af(e,nf) then
@@ -948,7 +925,7 @@ function update_enemy(e)
    hurt_plr()
   end
   if t and af(e,nf) then
-   e.vx,e.atk_cd=0,120 go_idle(e,e.ia,60)
+   e.vx,e.atk_cd=0,120 go_idle(e,60)
   end
  elseif s=="attack" then
   if t then
@@ -956,7 +933,7 @@ function update_enemy(e)
    if ff(e) and abs(ddx)<28 and abs(ddy)<24 then hurt_plr() end
    if af(e,nf) then
     e.fired,e.atk_cd=false,60
-    go_idle(e,e.ia,30)
+    go_idle(e,30)
    end
   end
  else
@@ -972,7 +949,8 @@ function update_enemy(e)
   end
   if e.atk_cd==0 then
    local ddx,ddy=px-e.x,py+e.dyo-e.y
-   if abs(ddx)<e.dr and abs(ddy)<e.dyr then
+   local ad=abs(ddx)
+   if ad<e.dr and abs(ddy)<e.dyr then
     if e.type==6 then
      local sf=e.surf+1
      e.mdir=(ddx*sf_dx[sf]+ddy*sf_dy[sf])>=0 and 1 or -1
@@ -981,9 +959,9 @@ function update_enemy(e)
      e.vx,e.mdir=0,ddx>0 and 1 or -1
      if e.type==7 then
       sp_set_anim(e,a_wbc,"charge")
-     elseif abs(ddx)<32 then
+     elseif ad<32 then
       sp_set_anim(e,e.aa,"attack")
-     elseif abs(ddx)>56 then
+     elseif ad>56 then
       sp_set_anim(e,e.sa,"shoot") e.fired=false
      else
       sp_set_anim(e,e.ca,"charge")
@@ -1001,7 +979,7 @@ function update_enemy(e)
   elseif s=="walk" then
    if e.patrol_t<=0 then
     e.vx=0
-    go_idle(e,e.ia,60)
+    go_idle(e,60)
    end
   end
  end
@@ -1116,15 +1094,16 @@ function text_box(txt,cx,cy,col)
  local bx,by=cx-mw\2-px,cy-bh\2
  local bw=mw+px*2
  local s=box_s
- rectfill(bx+4,by+4,bx+bw-5,by+bh-5,0)
+ local rx,ry=bx+bw-s,by+bh-s
+ rectfill(bx+4,by+4,rx+s-5,ry+s-5,0)
  draw_char(a_box,1,bx,by)
- draw_char(a_box,1,bx+bw-s,by,true)
- draw_char(a_box,1,bx,by+bh-s,true,2)
- draw_char(a_box,1,bx+bw-s,by+bh-s,false,2)
- line(bx+s,by+3,bx+bw-s-1,by+3,7)
- line(bx+s,by+bh-4,bx+bw-s-1,by+bh-4,7)
- line(bx+3,by+s,bx+3,by+bh-s-1,7)
- line(bx+bw-4,by+s,bx+bw-4,by+bh-s-1,7)
+ draw_char(a_box,1,rx,by,true)
+ draw_char(a_box,1,bx,ry,true,2)
+ draw_char(a_box,1,rx,ry,false,2)
+ line(bx+s,by+3,rx-1,by+3,7)
+ line(bx+s,ry+s-4,rx-1,ry+s-4,7)
+ line(bx+3,by+s,bx+3,ry-1,7)
+ line(rx+s-4,by+s,rx+s-4,ry-1,7)
  local ty=by+py
  for i,l in ipairs(lines) do
   p8print(l,cx-lw[i]\2,ty,col)
@@ -1254,7 +1233,7 @@ function _update60()
   else
    damp()
    if s~="idle" then
-    set_anim(a_idle,"idle")
+    to_idle()
    end
   end
 
@@ -1280,7 +1259,7 @@ function _update60()
     do_jump()
    else
     vx=0
-    set_anim(a_land,"land")
+    to_land()
    end
   end
 
@@ -1293,7 +1272,7 @@ function _update60()
    elseif buf_sweep>0 then
     start_sweep()
    else
-    set_anim(a_idle,"idle")
+    to_idle()
    end
   end
 
@@ -1315,7 +1294,7 @@ function _update60()
     sa(combo_chain[combo_idx])
    else
     combo_idx=0
-    set_anim(a_idle,"idle")
+    to_idle()
    end
   end
 
@@ -1327,7 +1306,7 @@ function _update60()
     return
    elseif grounded then
     air_atk=false
-    set_anim(a_land,"land")
+    to_land()
    elseif anim_done() then
     air_atk=false
     set_anim(a_fall,"fall")
@@ -1343,7 +1322,7 @@ function _update60()
      buf_atk,buf_sweep=0,0
      combo_idx=0
     else
-     set_anim(a_idle,"idle")
+     to_idle()
     end
    end
   end
@@ -1442,5 +1421,4 @@ function _draw()
   if zt then text_box(_zt[zt],64,108,7) end
  end
  apply_fade(fade_v)
- printh(stat(1))
 end
