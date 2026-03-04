@@ -1532,109 +1532,127 @@ def build_level_data(tileset, bg_tileset, map_data):
     print(f"  Map size: {map_w}x{map_h} ({map_w*map_h} cells), {num_layers} layers")
     print(f"  Spawn: ({spawn_x}, {spawn_y})")
 
-    # Step 1: Collect used tiles per layer (each layer uses its own tileset)
-    # Per-layer sets: used_base[L] and used_rot90[L]
+    # Step 1: Collect used tiles per layer
+    # Main layer: split by rotation (base vs rot90) — flips encoded at runtime
+    # BG layers: collect (tile_id, xform) pairs — all transforms baked into variants
     used_base = [set() for _ in range(num_layers)]
     used_rot90 = [set() for _ in range(num_layers)]
+    bg_used = [set() for _ in range(num_layers)]  # sets of (ti, xf) for BG layers
     for L in range(num_layers):
         for y in range(map_h):
             for x in range(map_w):
                 ti = map_grids[L][y][x]
                 if ti == 255:
                     continue
-                rot = xform_grids[L][y][x] & 3
-                if rot == 0 or rot == 2:
-                    used_base[L].add(ti)
+                xf = xform_grids[L][y][x]
+                if L == 1:
+                    rot = xf & 3
+                    if rot == 0 or rot == 2:
+                        used_base[L].add(ti)
+                    else:
+                        used_rot90[L].add(ti)
                 else:
-                    used_rot90[L].add(ti)
+                    bg_used[L].add((ti, xf))
 
     # Step 2: Build runtime tiles from both tilesets into a shared pool
     rt_tiles = []       # pixel arrays (256 P8 colors each)
     rt_tile_flags = {}  # runtime_tile_id -> flag byte
-    # Per-layer maps: base_rt[L][ti] -> rt_id, rot90_rt[L][ti] -> rt_id
-    base_rt = [{} for _ in range(num_layers)]
-    rot90_rt = [{} for _ in range(num_layers)]
+    # Main layer maps: base_rt[ti] -> rt_id, rot90_rt[ti] -> rt_id
+    main_base_rt = {}
+    main_rot90_rt = {}
+    # BG layer maps: bg_rt[L][(ti, xf)] -> rt_id
+    bg_rt = [{} for _ in range(num_layers)]
 
-    def add_tile_variant(pixels, L, ti, is_rot90):
-        """Add a pixel variant to the runtime pool, deduplicating by hash."""
+    # Hash cache for deduplication
+    rt_hashes = []
+
+    def add_rt_tile(pixels):
+        """Add pixels to runtime pool, deduplicating. Returns 1-based rt_id."""
         t_hash = hashlib.md5(bytes(pixels)).hexdigest()
-        # Check existing
-        for rt_id, existing in enumerate(rt_tiles):
-            if hashlib.md5(bytes(existing)).hexdigest() == t_hash:
-                if is_rot90:
-                    rot90_rt[L][ti] = rt_id + 1
-                else:
-                    base_rt[L][ti] = rt_id + 1
-                return
-        # New tile
+        for rt_id, h in enumerate(rt_hashes):
+            if h == t_hash:
+                return rt_id + 1
         rt_id = len(rt_tiles)
         rt_tiles.append(pixels)
-        if is_rot90:
-            rot90_rt[L][ti] = rt_id + 1
-        else:
-            base_rt[L][ti] = rt_id + 1
-        # Only main layer tiles (L=1) get collision flags
-        if L == 1:
-            rt_tile_flags[rt_id + 1] = editor_flags[ti] if ti < len(editor_flags) else 0
+        rt_hashes.append(t_hash)
+        return rt_id + 1
 
     # Process main layer (1) first → sprite sheet tiles (max 64).
-    # Then BG layer (0) → user memory tiles (rendered via memcpy).
-    def process_layer_tiles(L):
-        ts = layer_tilesets[L]
-        all_used = sorted(used_base[L] | used_rot90[L])
+    def process_main_tiles():
+        ts = layer_tilesets[1]
+        all_used = sorted(used_base[1] | used_rot90[1])
         for ti in all_used:
+            if ti >= len(ts):
+                print(f"  WARNING: main layer tile index {ti} out of range (tileset has {len(ts)}), skipping")
+                continue
+            name, tile_img = ts[ti]
+            base_pixels = remap_tile_colors(tile_img, layer_band_colors[1])
+            if ti in used_base[1]:
+                rt_id = add_rt_tile(base_pixels)
+                main_base_rt[ti] = rt_id
+                rt_tile_flags[rt_id] = editor_flags[ti] if ti < len(editor_flags) else 0
+            if ti in used_rot90[1]:
+                rot90_pixels = apply_transform(base_pixels, 1, False, False)
+                rt_id = add_rt_tile(rot90_pixels)
+                main_rot90_rt[ti] = rt_id
+                rt_tile_flags[rt_id] = editor_flags[ti] if ti < len(editor_flags) else 0
+
+    # Process BG layers → user memory tiles (all transforms baked in).
+    def process_bg_tiles(L):
+        ts = layer_tilesets[L]
+        for ti, xf in sorted(bg_used[L]):
             if ti >= len(ts):
                 print(f"  WARNING: layer {L} tile index {ti} out of range (tileset has {len(ts)}), skipping")
                 continue
             name, tile_img = ts[ti]
             base_pixels = remap_tile_colors(tile_img, layer_band_colors[L])
-            if ti in used_base[L]:
-                add_tile_variant(base_pixels, L, ti, False)
-            if ti in used_rot90[L]:
-                rot90_pixels = apply_transform(base_pixels, 1, False, False)
-                add_tile_variant(rot90_pixels, L, ti, True)
+            rot = xf & 3
+            hflip = bool(xf & 4)
+            vflip = bool(xf & 8)
+            pixels = apply_transform(base_pixels, rot, hflip, vflip)
+            rt_id = add_rt_tile(pixels)
+            bg_rt[L][(ti, xf)] = rt_id
 
-    process_layer_tiles(1)  # Main → sprite sheet
+    process_main_tiles()
     num_spr_tiles = len(rt_tiles)
-    process_layer_tiles(0)  # BG → user memory
-    process_layer_tiles(2)  # BG2 → user memory
+    process_bg_tiles(0)   # BG1 → user memory
+    process_bg_tiles(2)   # BG2 → user memory
     num_rt = len(rt_tiles)
 
-    print(f"  BG1: {len(used_base[0]|used_rot90[0])} editor tiles, Main: {len(used_base[1]|used_rot90[1])} editor tiles, BG2: {len(used_base[2]|used_rot90[2])} editor tiles")
+    print(f"  BG1: {len(bg_used[0])} variants, Main: {len(used_base[1]|used_rot90[1])} editor tiles, BG2: {len(bg_used[2])} variants")
     print(f"  Runtime tiles: {num_rt} ({num_spr_tiles} spr + {num_rt - num_spr_tiles} bg)")
 
     # Sprite sheet: 128x128px = 8x8 grid of 16x16 tiles = 64 max
     if num_spr_tiles > 64:
         print(f"  ERROR: {num_spr_tiles} main tiles exceeds 64 sprite sheet limit!")
     # Main layer cell byte: (tile_id << 2) | flip bits → max 63 tile IDs
-    main_rt_ids = set(base_rt[1].values()) | set(rot90_rt[1].values())
+    main_rt_ids = set(main_base_rt.values()) | set(main_rot90_rt.values())
     max_main_rt = max(main_rt_ids) if main_rt_ids else 0
     if max_main_rt > 63:
         print(f"  WARNING: main layer uses rt_id up to {max_main_rt}, exceeds 63 tile limit!")
-    # BG+FG tiles in user memory: 0x4300-0x5FFF = 7424 bytes, 128 bytes/tile = 58 max
+    # BG tiles in user memory: 0x4300-0x5FFF = 7424 bytes, 128 bytes/tile = 58 max
     num_mem_tiles = num_rt - num_spr_tiles
     if num_mem_tiles * 128 > 7424:
-        print(f"  WARNING: {num_mem_tiles} BG+FG tiles ({num_mem_tiles*128}b) exceeds user memory (7424b)!")
+        print(f"  WARNING: {num_mem_tiles} BG tiles ({num_mem_tiles*128}b) exceeds user memory (7424b)!")
 
     def editor_to_cell(L, ti, xf):
         """Convert editor (tile_id, packed_xform) to cell byte for layer L.
-        BG/FG layers (0,2): cell = rt_tile_id (no flip bits, max 255 tiles)
+        BG layers (0,2): cell = rt_tile_id (all transforms baked, max 255 tiles)
         Main layer (1): cell = (rt_tile_id << 2) | (flip_x << 1) | flip_y (max 63 tiles)
         Returns 0 for empty."""
         if ti == 255:
             return 0
+        if L != 1:
+            return bg_rt[L].get((ti, xf), 0)
         rot = xf & 3
-        hflip = bool(xf & 4)
-        vflip = bool(xf & 8)
         if rot == 0 or rot == 2:
-            rt_id = base_rt[L].get(ti, 0)
+            rt_id = main_base_rt.get(ti, 0)
         else:
-            rt_id = rot90_rt[L].get(ti, 0)
+            rt_id = main_rot90_rt.get(ti, 0)
         if rt_id == 0:
             return 0
-        # BG/FG layers: no flip bits, just tile id
-        if L != 1:
-            return rt_id
+        hflip = bool(xf & 4)
+        vflip = bool(xf & 8)
         if rot >= 2:
             fx = int(not hflip)
             fy = int(not vflip)
