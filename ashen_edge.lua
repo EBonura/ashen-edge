@@ -350,11 +350,11 @@ function load_tiles()
  local p=map_base+12+nl*2
  local tbpp=peek(p)
  local tnp=1<<tbpp
- local tpal,bpal={},{}
+ local tpal={}
  for i=0,tnp-1 do
   local tb=peek(p+1+i\2)
   local c=i%2==0 and(tb>>4)&0xf or tb&0xf
-  tpal[i]=c bpal[i]=c==trans and lvl_bg or c
+  tpal[i]=c
  end
  local sp=p+1+tnp\2 local ss=pk2(sp) sp+=2
  local function wt(off,n,pal,bg)
@@ -366,7 +366,7 @@ function load_tiles()
    end
   end end
  end
- wt(sp,lvl_nst,tpal) wt(sp+ss,nt-lvl_nst,bpal,1)
+ wt(sp,lvl_nst,tpal) wt(sp+ss,nt-lvl_nst,tpal,1)
  p+=pk2(map_base+10)
  for L=1,nl do
   local lsz=pk2(map_base+10+L*2)
@@ -465,19 +465,9 @@ function draw_mem_layer(L)
   for tx=tx0,tx1 do
    local c=md[ty*lvl_w+tx+1]
    if c>0 then
-    local sx,sy,src=tx*16-cx,ty*16-cy,0x8000+(c-lvl_nst-1)*128
-    for py=0,15 do
-     local dy=sy+py
-     if dy>=0 and dy<128 then
-      for j=0,7 do
-       local dx=sx\2+j
-       if dx>=0 and dx<64 then
-        local s=@(src+py*8+j)
-        if s~=bgb then poke(0x6000+dy*64+dx,s) end
-       end
-      end
-     end
-    end
+    local src=0x8000+(c-lvl_nst-1)*128
+    for py=0,15 do memcpy(0x1c38+py*64,src+py*8,8) end
+    spr(238,tx*16-cx,ty*16-cy,2,2)
    end
   end
  end

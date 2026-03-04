@@ -760,7 +760,8 @@ def _eg2_encode_frame(pixels, bpp, w, h):
     best_bytes = None
     best_mode = 0
     best_order = 2
-    for mode in range(5):
+    _eg2_allowed = getattr(sys.modules[__name__], '_eg2_allowed_modes', range(5))
+    for mode in _eg2_allowed:
         if mode == 4:
             diff = _apply_paeth(pixels, w, h)
         else:
@@ -1813,8 +1814,7 @@ def build_level_data(tileset, bg_tileset, map_data):
     gen.append(f"-- level: {map_w}x{map_h}, {num_rt} tiles, {num_layers} layers, {total_bytes}b")
     gen.append(f"map_base=0")  # placeholder, overwritten by allocator
     gen.append(f"lvl_w={map_w} lvl_h={map_h}")
-    bgb = map_bg_color | (map_bg_color << 4)
-    gen.append(f"lvl_nt={num_rt} lvl_nl={num_layers} lvl_nst={num_spr_tiles} lvl_bg={map_bg_color} bgb={bgb}")
+    gen.append(f"lvl_nt={num_rt} lvl_nl={num_layers} lvl_nst={num_spr_tiles} lvl_bg={map_bg_color}")
     if spawn_x >= 0:
         gen.append(f"spn_x={spawn_x} spn_y={spawn_y}")
     else:
