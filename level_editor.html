@@ -419,6 +419,9 @@ let spaceDown = false;
 let tileImages = [];
 let bgTileImages = [];
 let bgTileLum = [];
+// Snapshots of original b64 data for detecting pixel-editor changes
+const origTileB64 = {};
+const origBgTileB64 = {};
 let bgRemappedImages = [];
 // activePalette removed — unified tileset, all tiles visible at once
 let mapBgColor = 1; // P8 color index for map canvas background
@@ -492,6 +495,26 @@ function getStampTiles() {
   if (!positions.length) return [{dx:0, dy:0, idx: getSelectedTile()}];
   const minR = Math.min(...positions.map(p=>p.r)), minC = Math.min(...positions.map(p=>p.c));
   return positions.map(p => ({dx: p.c - minC, dy: p.r - minR, idx: p.idx}));
+}
+function getTransformedStampTiles() {
+  let tiles = getStampTiles();
+  if (tiles.length <= 1) return tiles;
+  // Apply horizontal flip to positions
+  if (curHFlip) {
+    const maxDx = Math.max(...tiles.map(t => t.dx));
+    tiles = tiles.map(t => ({dx: maxDx - t.dx, dy: t.dy, idx: t.idx}));
+  }
+  // Apply vertical flip to positions
+  if (curVFlip) {
+    const maxDy = Math.max(...tiles.map(t => t.dy));
+    tiles = tiles.map(t => ({dx: t.dx, dy: maxDy - t.dy, idx: t.idx}));
+  }
+  // Apply CW rotation to positions (N times)
+  for (let r = 0; r < curRotation; r++) {
+    const maxDy = Math.max(...tiles.map(t => t.dy));
+    tiles = tiles.map(t => ({dx: maxDy - t.dy, dy: t.dx, idx: t.idx}));
+  }
+  return tiles;
 }
 function updateModeButtons() {
   const multi = selectedTiles.length > 1;
@@ -1256,7 +1279,7 @@ function render() {
     const gImgs = imagesForLayer(curLayer), gRaw = rawImagesForLayer(curLayer);
     const xf = {rot: curRotation, hflip: curHFlip, vflip: curVFlip};
     if (placementMode === "stamp" && selectedTiles.length > 1) {
-      const stamp = getStampTiles();
+      const stamp = getTransformedStampTiles();
       stamp.forEach(s => {
         const gx = hoverTX + s.dx, gy = hoverTY + s.dy;
         if (gx >= 0 && gx < mapW && gy >= 0 && gy < mapH) {
@@ -1464,7 +1487,7 @@ wrap.addEventListener("mousedown", e => {
     if (currentTool==="pencil"||currentTool==="eraser") {
       pushUndo();
       if (currentTool==="eraser") { setTileAt(tx,ty,255,0); }
-      else if (placementMode==="stamp"&&selectedTiles.length>1) { const stamp=getStampTiles(); stamp.forEach(s=>setTileAt(tx+s.dx,ty+s.dy,s.idx,packXform())); }
+      else if (placementMode==="stamp"&&selectedTiles.length>1) { const stamp=getTransformedStampTiles(); stamp.forEach(s=>setTileAt(tx+s.dx,ty+s.dy,s.idx,packXform())); }
       else { setTileAt(tx,ty,getTileForPlacement(),packXform()); }
       render();
     }
@@ -1521,7 +1544,7 @@ wrap.addEventListener("mousemove", e => {
   }
   if (isDrawing&&(currentTool==="pencil"||currentTool==="eraser")) {
     if (currentTool==="eraser") { drawLine(lastDrawTX,lastDrawTY,tx,ty,255,0); }
-    else if (placementMode==="stamp"&&selectedTiles.length>1) { const stamp=getStampTiles(); stamp.forEach(s=>setTileAt(tx+s.dx,ty+s.dy,s.idx,packXform())); }
+    else if (placementMode==="stamp"&&selectedTiles.length>1) { const stamp=getTransformedStampTiles(); stamp.forEach(s=>setTileAt(tx+s.dx,ty+s.dy,s.idx,packXform())); }
     else { drawLine(lastDrawTX,lastDrawTY,tx,ty,getTileForPlacement(),packXform()); }
     lastDrawTX=tx;lastDrawTY=ty;render();
   }
@@ -1765,6 +1788,8 @@ function autoLoad() { try { const raw=localStorage.getItem("pico8_level_autosave
   if(d.bandColors){for(let i=0;i<Math.min(d.bandColors.length,bandColors.length);i++) bandColors[i]=d.bandColors[i];}
   if(d.bgBandColors){for(let i=0;i<Math.min(d.bgBandColors.length,bgBandColors.length);i++) bgBandColors[i]=d.bgBandColors[i];}
   if(d.mapBgColor!=null) mapBgColor=d.mapBgColor;
+  if(d.tileEdits){TILES.forEach((t,i)=>{const edit=d.tileEdits[t.name];if(edit){t.b64=edit.b64;if(edit.lum)tileLum[i]=edit.lum.map(p=>({lum:p.lum,a:p.a}));const img=new Image();img.onload=()=>{tileImages[i]=img;};img.src="data:image/png;base64,"+t.b64;}});}
+  if(d.bgTileEdits){BG_TILES.forEach((t,i)=>{const edit=d.bgTileEdits[t.name];if(edit){t.b64=edit.b64;if(edit.lum)bgTileLum[i]=edit.lum.map(p=>({lum:p.lum,a:p.a}));const img=new Image();img.onload=()=>{bgTileImages[i]=img;};img.src="data:image/png;base64,"+t.b64;}});}
   remapAllTiles();
   if(d.parallax) for(let i=0;i<NUM_LAYERS;i++) layerParallax[i]=d.parallax[i]??layerParallax[i];
   document.querySelectorAll(".parallax-input").forEach(inp=>{inp.value=layerParallax[parseInt(inp.dataset.layer)];});
@@ -1802,12 +1827,19 @@ function getLevelData() {
     }
     return out;
   });
+  // Collect edited tile images (only tiles that differ from originals)
+  const tileEdits = {};
+  TILES.forEach((t, i) => { if (t.b64 !== origTileB64[t.name]) tileEdits[t.name] = {b64: t.b64, lum: tileLum[i]}; });
+  const bgTileEdits = {};
+  BG_TILES.forEach((t, i) => { if (t.b64 !== origBgTileB64[t.name]) bgTileEdits[t.name] = {b64: t.b64, lum: bgTileLum[i]}; });
   return {
     version: 4,
     width: mapW,
     height: mapH,
     tiles: TILES.map(t => t.name),
     bgTiles: BG_TILES.map(t => t.name),
+    tileEdits: Object.keys(tileEdits).length ? tileEdits : undefined,
+    bgTileEdits: Object.keys(bgTileEdits).length ? bgTileEdits : undefined,
     flags: Array.from(tileFlags),
     layers: layers.map(L => ({
       map: L.map.map(r => Array.from(r)),
@@ -1877,6 +1909,31 @@ function applyLevelData(d) {
   if (d.bandColors) { for (let i=0; i<Math.min(d.bandColors.length, bandColors.length); i++) bandColors[i] = d.bandColors[i]; }
   if (d.bgBandColors) { for (let i=0; i<Math.min(d.bgBandColors.length, bgBandColors.length); i++) bgBandColors[i] = d.bgBandColors[i]; }
   if (d.mapBgColor != null) mapBgColor = d.mapBgColor;
+  // Restore pixel-editor tile edits
+  if (d.tileEdits) {
+    TILES.forEach((t, i) => {
+      const edit = d.tileEdits[t.name];
+      if (edit) {
+        t.b64 = edit.b64;
+        if (edit.lum) tileLum[i] = edit.lum.map(p => ({lum: p.lum, a: p.a}));
+        const img = new Image();
+        img.onload = () => { tileImages[i] = img; };
+        img.src = "data:image/png;base64," + t.b64;
+      }
+    });
+  }
+  if (d.bgTileEdits) {
+    BG_TILES.forEach((t, i) => {
+      const edit = d.bgTileEdits[t.name];
+      if (edit) {
+        t.b64 = edit.b64;
+        if (edit.lum) bgTileLum[i] = edit.lum.map(p => ({lum: p.lum, a: p.a}));
+        const img = new Image();
+        img.onload = () => { bgTileImages[i] = img; };
+        img.src = "data:image/png;base64," + t.b64;
+      }
+    });
+  }
   remapAllTiles(); refreshPaletteTiles(); buildBandEditor();
   if (d.parallax) { for (let i=0; i<NUM_LAYERS; i++) layerParallax[i] = d.parallax[i] ?? layerParallax[i]; }
   const loadedTexts = d.texts || [];
@@ -2166,6 +2223,9 @@ document.querySelectorAll(".pal-tab").forEach(b => {
 // Boot
 loadTileImages(async () => {
   MAIN_COUNT = TILES.length;
+  // Snapshot original b64 so we can detect pixel-editor edits
+  TILES.forEach(t => { origTileB64[t.name] = t.b64; });
+  BG_TILES.forEach(t => { origBgTileB64[t.name] = t.b64; });
   extractTileLuminance();
   remapAllTiles();
   if (!autoLoad()) initMap();

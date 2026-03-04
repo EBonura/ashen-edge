@@ -247,23 +247,16 @@ function hurt_plr()
 end
 
 function draw_hp()
- local fill=hp_w*(1-plr_hp/3)
+ local fill=hp_w-hp_w*plr_hp/3
  local tt=time()*3
  local idx=1
  for y=0,hp_h-1 do
   local wave=sin(y*0.12+tt)*1.5
   for x=0,hp_w-1 do
-   local c=ord(hp_buf,idx)
-   if c==0 then
-    pset(x,y,0)
-   elseif c==7 then
-    if hp_w-1-x>=fill+wave then
-     pset(x,y,8)
-    else
-     pset(x,y,7)
-    end
+   local c=ord(hp_buf,idx) idx+=1
+   if c~=trans then
+    pset(x,y,c>0 and(hp_w-1-x>=fill+wave and 8 or 7)or 0)
    end
-   idx+=1
   end
  end
 end
@@ -680,8 +673,21 @@ function init_ents()
    e.atk_cd,e.fired=0,false
    e.inv_t,e.move_acc=0,0
    e.patrol_t,e.walk_count=60,0
+   e.ia,e.wa,e.ws=a_spi,a_spw,0.5
+   e.sa,e.scd,e.spt=a_spa,180,60
+   e.fx,e.fy,e.fs=8,8,2
+   e.dr,e.dyr,e.dyo=80,48,0
   elseif t==4 then init_bot(e,a_wbi,4)
+   e.ia,e.wa,e.ws=a_wbi,a_wbm,0.6
+   e.sa,e.scd,e.spt=a_wbs,120,60
+   e.fx,e.fy,e.fs=0,-12,2.5
+   e.dr,e.dyr,e.dyo=80,32,11
+   e.wka=a_wbwk
   elseif t==5 then init_bot(e,a_hbi,5)
+   e.ia,e.wa,e.ws=a_hbi,a_hbr,0.8
+   e.sa,e.scd,e.spt=a_hbs,90,30
+   e.fx,e.fy,e.fs=0,-14,2
+   e.dr,e.dyr,e.dyo=90,32,11
   elseif t>=6 then
    e.x,e.y=e.tx*16,e.ty*16
    if t==6 then
@@ -860,146 +866,49 @@ function tc(e)
  if e.atk_cd>0 then e.atk_cd-=1 end
 end
 
-function update_spider(e)
- local spd=aspd[e.anim] or 6
- local st=e.state
- if st=="death" then
-  local tick,nf=ent_tick(e,spd)
-  if tick then af(e,nf) end
-  return
- end
-
- tc(e)
-
- local tick,nf=ent_tick(e,spd)
- if tick then
-  if st=="hit" then
-   if af(e,nf) then go_idle(e,a_spi,60) end
-  elseif st=="attack" then
-   if ff(e) then fire_at(e.x+8,e.y+8,2) end
-   if af(e,nf) then
-    e.atk_cd,e.fired=180,false
-    go_idle(e,a_spi,60)
-   end
-  elseif st=="walk" then
-   e.frame=e.frame%nf+1
-  end
- end
-
- if (st=="idle" or st=="walk") and e.atk_cd==0 then
-  local ddx,ddy=px-e.x,py-e.y
-  if abs(ddx)<80 and abs(ddy)<48 then
-   -- face player along surface
-   local s=e.surf+1
-   local fdx=sf_dx[s]
-   local fdy=sf_dy[s]
-   local dot=ddx*fdx+ddy*fdy
-   e.mdir=dot>=0 and 1 or -1
-   sp_set_anim(e,a_spa,"attack")
-   return
-  end
- end
-
- -- patrol: idle <-> walk
- if st=="walk" then
-  e.move_acc+=0.5
-  while e.move_acc>=1 do
-   e.move_acc-=1
-   step_spider(e)
-  end
- end
- e.patrol_t-=1
- if st=="idle" then
-  if e.patrol_t<=0 then
-   e.state="walk" patrol_start(e,a_spw)
-  end
- elseif st=="walk" then
-  if e.patrol_t<=0 then
-   go_idle(e,a_spi,60)
-  end
- end
-end
-
-function update_bot(e)
- local wb=e.type==4
- local abi=wb and a_wbi or a_hbi
+function update_enemy(e)
  local spd=aspd[e.anim] or 6
  local s=e.state
  if s=="death" then
   local t,nf=ent_tick(e,spd)
   if t then af(e,nf) end
-  wb_move(e) return
+  if e.type~=3 then wb_move(e) end
+  return
  end
  tc(e)
  local t,nf=ent_tick(e,spd)
- local ddx,ddy=px-e.x,(py+11)-e.y local dist=abs(ddx)
- local function spot()
-  if e.atk_cd==0 and dist<(wb and 80 or 90) and abs(ddy)<32 then
-   e.vx,e.mdir=0,ddx>0 and 1 or -1
-   if wb then
-    sp_set_anim(e,a_wbc,"charge")
-   elseif dist<32 then
-    sp_set_anim(e,a_hba,"attack")
-   elseif dist>56 then
-    sp_set_anim(e,a_hbs,"shoot")
-    e.fired=false
-   else
-    sp_set_anim(e,a_hbr,"charge")
+ if s=="hit" then
+  if t and af(e,nf) then go_idle(e,e.ia,60) end
+ elseif s=="shoot" then
+  if t then
+   if ff(e) then fire_at(e.x+e.fx,e.y+e.fy,e.fs) end
+   if af(e,nf) then
+    e.fired,e.atk_cd=false,e.scd
+    go_idle(e,e.ia,e.spt)
    end
-   return true
   end
- end
- if s=="sleep" then
-  if dist<(wb and 64 or 72) and abs(ddy)<48 then
-   if wb then
-    sp_set_anim(e,a_wbwk,"wake")
-   else
-    sp_set_anim(e,abi,"idle")
-   end
+ elseif s=="sleep" then
+  local ddx,ddy=px-e.x,(py+11)-e.y
+  if abs(ddx)<(e.type==4 and 64 or 72) and abs(ddy)<48 then
+   if e.wka then sp_set_anim(e,e.wka,"wake")
+   else sp_set_anim(e,e.ia,"idle") end
   end
  elseif s=="wake" then
-  if t and af(e,nf) then go_idle(e,abi,30) end
- elseif s=="idle" then
-  if not spot() then
-   e.patrol_t-=1
-   if e.patrol_t<=0 then
-    e.state=wb and "move" or "run"
-    patrol_start(e,wb and a_wbm or a_hbr)
-   end
-  end
- elseif s=="move" or s=="run" then
-  e.vx=e.mdir*(wb and 0.6 or 0.8)
-  if t then e.frame=e.frame%nf+1 end
-  if not spot() then
-   e.patrol_t-=1
-   if e.patrol_t<=0 then
-    e.vx=0 go_idle(e,abi,60)
-   end
-  end
+  if t and af(e,nf) then go_idle(e,e.ia,30) end
  elseif s=="charge" then
-  if wb then
+  if e.type==4 then
    if t and af(e,nf) then
-    if dist>48 then
-     sp_set_anim(e,a_wbs,"shoot")
-     e.fired=false
+    if abs(px-e.x)>48 then
+     sp_set_anim(e,e.sa,"shoot") e.fired=false
     else
-     sp_set_anim(e,a_wbfd,"fdash")
-     e.inv_t=30
+     sp_set_anim(e,a_wbfd,"fdash") e.inv_t=30
     end
    end
   else
    e.vx=e.mdir*1.5
    if t then e.frame=e.frame%nf+1 end
-   if dist<32 then
+   if abs(px-e.x)<32 then
     e.vx=0 sp_set_anim(e,a_hba,"attack")
-   end
-  end
- elseif s=="shoot" then
-  if t then
-   if ff(e) then fire_at(e.x,e.y-(wb and 12 or 14),wb and 2.5 or 2) end
-   if af(e,nf) then
-    e.fired,e.atk_cd=false,wb and 120 or 90
-    go_idle(e,abi,wb and 60 or 30)
    end
   end
  elseif s=="fdash" then
@@ -1008,20 +917,64 @@ function update_bot(e)
    hurt_plr()
   end
   if t and af(e,nf) then
-   e.vx,e.atk_cd=0,120 go_idle(e,abi,60)
+   e.vx,e.atk_cd=0,120 go_idle(e,e.ia,60)
   end
  elseif s=="attack" then
   if t then
-   if ff(e) and dist<28 and abs(ddy)<24 then hurt_plr() end
+   local ddx,ddy=px-e.x,(py+11)-e.y
+   if ff(e) and abs(ddx)<28 and abs(ddy)<24 then hurt_plr() end
    if af(e,nf) then
     e.fired,e.atk_cd=false,60
-    go_idle(e,abi,30)
+    go_idle(e,e.ia,30)
    end
   end
- elseif s=="hit" then
-  if t and af(e,nf) then go_idle(e,abi,60) end
+ else
+  -- idle or walk
+  if s=="walk" then
+   if e.type==3 then
+    e.move_acc+=e.ws
+    while e.move_acc>=1 do e.move_acc-=1 step_spider(e) end
+   else
+    e.vx=e.mdir*e.ws
+   end
+   if t then e.frame=e.frame%nf+1 end
+  end
+  if e.atk_cd==0 then
+   local ddx,ddy=px-e.x,py+e.dyo-e.y
+   if abs(ddx)<e.dr and abs(ddy)<e.dyr then
+    if e.type==3 then
+     local sf=e.surf+1
+     e.mdir=(ddx*sf_dx[sf]+ddy*sf_dy[sf])>=0 and 1 or -1
+     sp_set_anim(e,e.sa,"shoot")
+    else
+     e.vx,e.mdir=0,ddx>0 and 1 or -1
+     if e.type==4 then
+      sp_set_anim(e,a_wbc,"charge")
+     elseif abs(ddx)<32 then
+      sp_set_anim(e,a_hba,"attack")
+     elseif abs(ddx)>56 then
+      sp_set_anim(e,e.sa,"shoot") e.fired=false
+     else
+      sp_set_anim(e,a_hbr,"charge")
+     end
+    end
+    if e.type~=3 then wb_move(e) end
+    return
+   end
+  end
+  e.patrol_t-=1
+  if s=="idle" then
+   if e.patrol_t<=0 then
+    e.state="walk" patrol_start(e,e.wa)
+   end
+  elseif s=="walk" then
+   if e.patrol_t<=0 then
+    if e.type~=3 then e.vx=0 end
+    go_idle(e,e.ia,60)
+   end
+  end
  end
- wb_move(e)
+ if e.type~=3 then wb_move(e) end
 end
 
 function update_sprojs()
@@ -1073,8 +1026,6 @@ function update_ents()
      else e.state,e.frame=0,15 end
     end
    end
-  elseif t==3 then
-   update_spider(e)
   elseif t==6 or t==7 and e.lit then
    local tk,nf=ent_tick(e,6)
    if tk then e.frame=e.frame%(t==7 and 6 or nf)+1 end
@@ -1084,7 +1035,7 @@ function update_ents()
   elseif t==8 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
    zt=e.group
   elseif t<=5 then
-   update_bot(e)
+   update_enemy(e)
   end
   if (t==2 and e.state==0 or t==6 and not e.active) and abs(px-e.x)<12 and abs(py+8-e.y)<16 then
    near_ent=e
