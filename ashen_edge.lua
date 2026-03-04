@@ -72,6 +72,7 @@ gems=0   -- collected count
 -- player HP
 plr_hp,plr_inv,death_t,ckpt_x,ckpt_y,safe_x,safe_y=3,0,0,0,0,0,0
 ptl_rm={[5]=2,[6]=8,[7]=8}
+-- entity types: 1=door,2=switch,3=portal,4=torch,5=zone,6=spider,7=wheelbot,8=hellbot,9=boss
 
 -- spider projectiles
 sprojs={}
@@ -363,9 +364,9 @@ function load_tiles()
   local a,b,c,d=peek(p,4)
   local e={type=a,tx=b,ty=c,group=d}
   p+=4
-  if a==2 or a==6 then
+  if a==2 or a==3 then
    e.cost=peek(p) p+=1
-  elseif a==8 then
+  elseif a==5 then
    e.tw=peek(p) e.th=peek(p+1) p+=2
   end
   add(ents,e)
@@ -601,22 +602,22 @@ function check_attacks()
  end
  for e in all(ents) do
   local t=e.type
-  if t==7 then
+  if t==4 then
    if h(e.x,e.y,8) then e.lit,e.frame=false,7
     local p=mkp(e.x+8,e.y+8,1) p.cl=8 p.vx=rnd(1)-.5 p.vy=rnd(1)-.5 end
-  elseif t==3 and e.hp>0
+  elseif t==6 and e.hp>0
    and e.state~="death" and e.inv_t==0 then
    if h(e.x,e.y,0) then
-    ent_hurt(e,a_spd,a_sph)
+    ent_hurt(e,e.da,e.ha)
    end
-  elseif t\2==2 and e.hp>0
+  elseif t>=7 and e.hp>0
    and e.state~="death" and e.state~="sleep"
-   and (t~=4 or e.state~="fdash") and e.inv_t==0 then
-   local wb=t==4
+   and (t~=7 or e.state~="fdash") and e.inv_t==0 then
+   local wb=t==7
    local hw=wb and 14 or 15
    if ax1>e.x-hw and ax0<e.x+hw
     and ay1>e.y-(wb and 24 or 28) and ay0<e.y then
-    ent_hurt(e,wb and a_wbdt or a_hbd,wb and a_wbd or a_hbh)
+    ent_hurt(e,e.da,e.ha)
    end
   end
  end
@@ -666,6 +667,15 @@ function init_ents()
    e.state,e.cooldown,e.cost=0,0,e.cost or 0
   elseif t==3 then
    e.x,e.y=e.tx*16,e.ty*16
+   e.x+=8 e.y+=16
+   e.anim,e.frame=a_ptl,1
+   e.anim_t,e.active,e.cost=0,false,e.cost or 0
+  elseif t==4 then
+   e.x,e.y=e.tx*16,e.ty*16
+   e.anim,e.frame=a_torch,1
+   e.anim_t,e.lit=0,true
+  elseif t==6 then
+   e.x,e.y=e.tx*16,e.ty*16
    e.surf,e.mdir=0,1
    e.anim,e.frame=a_spi,1
    e.state="idle"
@@ -677,27 +687,28 @@ function init_ents()
    e.sa,e.scd,e.spt=a_spa,180,60
    e.fx,e.fy,e.fs=8,8,2
    e.dr,e.dyr,e.dyo=80,48,0
-  elseif t==4 then init_bot(e,a_wbi,4)
+   e.da,e.ha=a_spd,a_sph
+  elseif t==7 then init_bot(e,a_wbi,4)
    e.ia,e.wa,e.ws=a_wbi,a_wbm,0.6
    e.sa,e.scd,e.spt=a_wbs,120,60
    e.fx,e.fy,e.fs=0,-12,2.5
    e.dr,e.dyr,e.dyo=80,32,11
+   e.da,e.ha=a_wbdt,a_wbd
    e.wka=a_wbwk
-  elseif t==5 then init_bot(e,a_hbi,5)
+  elseif t==8 then init_bot(e,a_hbi,5)
    e.ia,e.wa,e.ws=a_hbi,a_hbr,0.8
    e.sa,e.scd,e.spt=a_hbs,90,30
    e.fx,e.fy,e.fs=0,-14,2
    e.dr,e.dyr,e.dyo=90,32,11
-  elseif t>=6 then
-   e.x,e.y=e.tx*16,e.ty*16
-   if t==6 then
-    e.x+=8 e.y+=16
-    e.anim,e.frame=a_ptl,1
-    e.anim_t,e.active,e.cost=0,false,e.cost or 0
-   elseif t==7 then
-    e.anim,e.frame=a_torch,1
-    e.anim_t,e.lit=0,true
-   end
+   e.da,e.ha=a_hbd,a_hbh
+   e.aa,e.ca=a_hba,a_hbr
+  elseif t==9 then init_bot(e,a_bki,10)
+   e.ia,e.wa,e.ws=a_bki,a_bkr,0.8
+   e.sa,e.scd,e.spt=a_bka,90,30
+   e.fx,e.fy,e.fs=0,-14,2
+   e.dr,e.dyr,e.dyo=100,40,11
+   e.da,e.ha=a_bkd,a_bkh
+   e.aa,e.ca=a_bka,a_bkc
   end
  end
 end
@@ -872,7 +883,7 @@ function update_enemy(e)
  if s=="death" then
   local t,nf=ent_tick(e,spd)
   if t then af(e,nf) end
-  if e.type~=3 then wb_move(e) end
+  if e.type~=6 then wb_move(e) end
   return
  end
  tc(e)
@@ -889,14 +900,14 @@ function update_enemy(e)
   end
  elseif s=="sleep" then
   local ddx,ddy=px-e.x,(py+11)-e.y
-  if abs(ddx)<(e.type==4 and 64 or 72) and abs(ddy)<48 then
+  if abs(ddx)<(e.type==7 and 64 or 72) and abs(ddy)<48 then
    if e.wka then sp_set_anim(e,e.wka,"wake")
    else sp_set_anim(e,e.ia,"idle") end
   end
  elseif s=="wake" then
   if t and af(e,nf) then go_idle(e,e.ia,30) end
  elseif s=="charge" then
-  if e.type==4 then
+  if e.type==7 then
    if t and af(e,nf) then
     if abs(px-e.x)>48 then
      sp_set_anim(e,e.sa,"shoot") e.fired=false
@@ -908,7 +919,7 @@ function update_enemy(e)
    e.vx=e.mdir*1.5
    if t then e.frame=e.frame%nf+1 end
    if abs(px-e.x)<32 then
-    e.vx=0 sp_set_anim(e,a_hba,"attack")
+    e.vx=0 sp_set_anim(e,e.aa,"attack")
    end
   end
  elseif s=="fdash" then
@@ -931,7 +942,7 @@ function update_enemy(e)
  else
   -- idle or walk
   if s=="walk" then
-   if e.type==3 then
+   if e.type==6 then
     e.move_acc+=e.ws
     while e.move_acc>=1 do e.move_acc-=1 step_spider(e) end
    else
@@ -942,23 +953,23 @@ function update_enemy(e)
   if e.atk_cd==0 then
    local ddx,ddy=px-e.x,py+e.dyo-e.y
    if abs(ddx)<e.dr and abs(ddy)<e.dyr then
-    if e.type==3 then
+    if e.type==6 then
      local sf=e.surf+1
      e.mdir=(ddx*sf_dx[sf]+ddy*sf_dy[sf])>=0 and 1 or -1
      sp_set_anim(e,e.sa,"shoot")
     else
      e.vx,e.mdir=0,ddx>0 and 1 or -1
-     if e.type==4 then
+     if e.type==7 then
       sp_set_anim(e,a_wbc,"charge")
      elseif abs(ddx)<32 then
-      sp_set_anim(e,a_hba,"attack")
+      sp_set_anim(e,e.aa,"attack")
      elseif abs(ddx)>56 then
       sp_set_anim(e,e.sa,"shoot") e.fired=false
      else
-      sp_set_anim(e,a_hbr,"charge")
+      sp_set_anim(e,e.ca,"charge")
      end
     end
-    if e.type~=3 then wb_move(e) end
+    if e.type~=6 then wb_move(e) end
     return
    end
   end
@@ -969,12 +980,12 @@ function update_enemy(e)
    end
   elseif s=="walk" then
    if e.patrol_t<=0 then
-    if e.type~=3 then e.vx=0 end
+    if e.type~=6 then e.vx=0 end
     go_idle(e,e.ia,60)
    end
   end
  end
- if e.type~=3 then wb_move(e) end
+ if e.type~=6 then wb_move(e) end
 end
 
 function update_sprojs()
@@ -1026,18 +1037,18 @@ function update_ents()
      else e.state,e.frame=0,15 end
     end
    end
-  elseif t==6 or t==7 and e.lit then
+  elseif t==3 or t==4 and e.lit then
    local tk,nf=ent_tick(e,6)
-   if tk then e.frame=e.frame%(t==7 and 6 or nf)+1 end
-   if t==7 and e.lit and abs(px-e.x-8)<11 and abs(py+11-e.y-8)<14 then
+   if tk then e.frame=e.frame%(t==4 and 6 or nf)+1 end
+   if t==4 and e.lit and abs(px-e.x-8)<11 and abs(py+11-e.y-8)<14 then
     hurt_plr()
    end
-  elseif t==8 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
+  elseif t==5 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
    zt=e.group
-  elseif t<=5 then
+  elseif t>=6 then
    update_enemy(e)
   end
-  if (t==2 and e.state==0 or t==6 and not e.active) and abs(px-e.x)<12 and abs(py+8-e.y)<16 then
+  if (t==2 and e.state==0 or t==3 and not e.active) and abs(px-e.x)<12 and abs(py+8-e.y)<16 then
    near_ent=e
   end
  end
@@ -1114,20 +1125,22 @@ end
 function draw_ents()
  for e in all(ents) do
   local t=e.type
-  if t==4 then
+  if t==7 then
    draw_bot(e,wb_anc,wheelbot_cw,wheelbot_ch)
-  elseif t==5 then
+  elseif t==8 then
    draw_bot(e,hb_anc,hellbot_cw,hellbot_ch)
-  elseif t==3 then
+  elseif t==9 then
+   draw_bot(e,bk_anc,boss_cw,boss_ch)
+  elseif t==6 then
    local sx,sy=e.x-cam_x,e.y-cam_y
    local flip=e.mdir==-1
    local rot=sp_rot[e.surf+1]
    draw_char(e.anim,e.frame,sx,sy,flip,rot)
-  elseif t==6 then
+  elseif t==3 then
    draw_char(e.anim,e.frame,e.x-portal_cw\2-cam_x,e.y-portal_ch-cam_y,nil,nil,e.active and ptl_rm)
-  elseif t==7 then
+  elseif t==4 then
    draw_char(e.anim,e.frame,e.x-cam_x,e.y-cam_y)
-  elseif t~=8 then
+  elseif t~=5 then
    local sx,sy=e.tx*16-cam_x,e.ty*16-cam_y
    if t==1 then sx-=16 end
    draw_char(e.anim,e.frame,sx,sy)
