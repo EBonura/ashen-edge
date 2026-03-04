@@ -466,10 +466,11 @@ function tr(cx,cy)
  return x,y,min(lvl_w-1,x+8),min(lvl_h-1,y+8)
 end
 
-function draw_bg_layer()
- local md=mdat[1]
+function draw_mem_layer(L)
+ local md=mdat[L]
  if not md then return end
- local cx,cy=flr(cam_x*lplx[1])\2*2,flr(cam_y*lplx[1])
+ local p=lplx[L]
+ local cx,cy=flr(pax+dcx*p)\2*2,flr(pay+dcy*p)
  local tx0,ty0,tx1,ty1=tr(cx,cy)
  for ty=ty0,ty1 do
   for tx=tx0,tx1 do
@@ -501,7 +502,8 @@ end
 function draw_main_layer()
  local md=mdat[2]
  if not md then return end
- local cx,cy=cam_x*lplx[2],cam_y*lplx[2]
+ local p=lplx[2]
+ local cx,cy=pax+dcx*p,pay+dcy*p
  local tx0,ty0,tx1,ty1=tr(cx,cy)
  for ty=ty0,ty1 do
   for tx=tx0,tx1 do
@@ -512,11 +514,11 @@ function draw_main_layer()
 end
 
 function update_camera()
- local target_x,target_y=px-64,py-64
- target_x,target_y=mid(0,target_x,lvl_w*16-128),mid(0,target_y,lvl_h*16-128)
+ local target_x,target_y=mid(0,px-64,lvl_w*16-128),mid(0,py-64,lvl_h*16-128)
  -- smooth follow, round to whole pixels
  cam_x+=flr((target_x-cam_x)*0.15+0.5)
  cam_y+=flr((target_y-cam_y)*0.15+0.5)
+ dcx,dcy=cam_x-pax,cam_y-pay
 end
 
 -- -- game --
@@ -544,6 +546,7 @@ function _init()
  init_ents()
  -- set player to spawn
  px,py=spn_x*16+8,spn_y*16
+ pax,pay=px-64,py-64
  ckpt_x,ckpt_y=px,py
  safe_x,safe_y=px,py
  music(0)
@@ -651,18 +654,19 @@ function check_attacks()
   end
  end
  for e in all(ents) do
-  if e.type==7 then
+  local t=e.type
+  if t==7 then
    if h(e.x,e.y,8) then e.lit,e.frame=false,7
     local p=mkp(e.x+8,e.y+8,1) p.cl=8 p.vx=rnd(1)-.5 p.vy=rnd(1)-.5 end
-  elseif e.type==3 and e.hp>0
+  elseif t==3 and e.hp>0
    and e.state~="death" and e.inv_t==0 then
    if h(e.x,e.y,0) then
     ent_hurt(e,a_spd,a_sph)
    end
-  elseif e.type\2==2 and e.hp>0
+  elseif t\2==2 and e.hp>0
    and e.state~="death" and e.state~="sleep"
-   and (e.type~=4 or e.state~="fdash") and e.inv_t==0 then
-   local wb=e.type==4
+   and (t~=4 or e.state~="fdash") and e.inv_t==0 then
+   local wb=t==4
    local hw=wb and 14 or 15
    if ax1>e.x-hw and ax0<e.x+hw
     and ay1>e.y-(wb and 24 or 28) and ay0<e.y then
@@ -708,14 +712,13 @@ end
 
 function init_ents()
  for e in all(ents) do
-  if e.type==1 then
-   -- door: closed = frame 15
+  local t=e.type
+  if t==1 then
    e.anim,e.frame,e.state=a_door,15,0
-  elseif e.type==2 then
+  elseif t==2 then
    e.x,e.y,e.anim,e.frame=e.tx*16+8,e.ty*16+8,a_sid,1
    e.state,e.cooldown,e.cost=0,0,e.cost or 0
-  elseif e.type==3 then
-   -- spider
+  elseif t==3 then
    e.x,e.y=e.tx*16,e.ty*16
    e.surf,e.mdir=0,1
    e.anim,e.frame=a_spi,1
@@ -724,15 +727,15 @@ function init_ents()
    e.atk_cd,e.fired=0,false
    e.inv_t,e.move_acc=0,0
    e.patrol_t,e.walk_count=60,0
-  elseif e.type==4 then init_bot(e,a_wbi,4)
-  elseif e.type==5 then init_bot(e,a_hbi,5)
-  elseif e.type>=6 then
+  elseif t==4 then init_bot(e,a_wbi,4)
+  elseif t==5 then init_bot(e,a_hbi,5)
+  elseif t>=6 then
    e.x,e.y=e.tx*16,e.ty*16
-   if e.type==6 then
+   if t==6 then
     e.x+=8 e.y+=16
     e.anim,e.frame=a_ptl,1
     e.anim_t,e.active,e.cost=0,false,e.cost or 0
-   elseif e.type==7 then
+   elseif t==7 then
     e.anim,e.frame=a_torch,1
     e.anim_t,e.lit=0,true
    end
@@ -1097,7 +1100,8 @@ end
 function update_ents()
  zt,near_ent=nil
  for e in all(ents) do
-  if e.type==2 then
+  local t=e.type
+  if t==2 then
    if e.cooldown>0 then e.cooldown-=1 end
    if e.state==1 then
     local tick,nf=ent_tick(e,aspd[a_sdn])
@@ -1106,7 +1110,7 @@ function update_ents()
     local tick,nf=ent_tick(e,aspd[a_sst])
     if tick and af(e,nf) then e.state,e.anim,e.frame=0,a_sid,1 end
    end
-  elseif e.type==1 then
+  elseif t==1 then
    if e.state%2==1 and ent_tick(e,aspd[a_door]) then
     if e.state==1 then
      if e.frame<14 then e.frame+=1
@@ -1116,20 +1120,20 @@ function update_ents()
      else e.state,e.frame=0,15 end
     end
    end
-  elseif e.type==3 then
+  elseif t==3 then
    update_spider(e)
-  elseif e.type==6 or e.type==7 and e.lit then
-   local t,nf=ent_tick(e,6)
-   if t then e.frame=e.frame%(e.type==7 and 6 or nf)+1 end
-   if e.type==7 and e.lit and abs(px-e.x-8)<11 and abs(py+11-e.y-8)<14 then
+  elseif t==6 or t==7 and e.lit then
+   local tk,nf=ent_tick(e,6)
+   if tk then e.frame=e.frame%(t==7 and 6 or nf)+1 end
+   if t==7 and e.lit and abs(px-e.x-8)<11 and abs(py+11-e.y-8)<14 then
     hurt_plr()
    end
-  elseif e.type==8 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
+  elseif t==8 and px\16>=e.tx and px\16<e.tx+e.tw and py\16>=e.ty and py\16<e.ty+e.th then
    zt=e.group
-  elseif e.type<=5 then
+  elseif t<=5 then
    update_bot(e)
   end
-  if (e.type==2 and e.state==0 or e.type==6 and not e.active) and abs(px-e.x)<12 and abs(py+8-e.y)<16 then
+  if (t==2 and e.state==0 or t==6 and not e.active) and abs(px-e.x)<12 and abs(py+8-e.y)<16 then
    near_ent=e
   end
  end
@@ -1205,22 +1209,23 @@ end
 
 function draw_ents()
  for e in all(ents) do
-  if e.type==4 then
+  local t=e.type
+  if t==4 then
    draw_bot(e,wb_anc,wheelbot_cw,wheelbot_ch)
-  elseif e.type==5 then
+  elseif t==5 then
    draw_bot(e,hb_anc,hellbot_cw,hellbot_ch)
-  elseif e.type==3 then
+  elseif t==3 then
    local sx,sy=e.x-cam_x,e.y-cam_y
    local flip=e.mdir==-1
    local rot=sp_rot[e.surf+1]
    draw_char(e.anim,e.frame,sx,sy,flip,rot)
-  elseif e.type==6 then
+  elseif t==6 then
    draw_char(e.anim,e.frame,e.x-portal_cw\2-cam_x,e.y-portal_ch-cam_y,nil,nil,e.active and ptl_rm)
-  elseif e.type==7 then
+  elseif t==7 then
    draw_char(e.anim,e.frame,e.x-cam_x,e.y-cam_y)
-  elseif e.type~=8 then
+  elseif t~=8 then
    local sx,sy=e.tx*16-cam_x,e.ty*16-cam_y
-   if e.type==1 then sx-=16 end
+   if t==1 then sx-=16 end
    draw_char(e.anim,e.frame,sx,sy)
   end
  end
@@ -1268,9 +1273,9 @@ function _update60()
  if btnp(2) then buf_jump=8 end
  if btnp(4) then buf_atk=8 end
  if btnp(5) then buf_sweep=8 end
- if buf_jump>0 then buf_jump-=1 end
- if buf_atk>0 then buf_atk-=1 end
- if buf_sweep>0 then buf_sweep-=1 end
+ buf_jump=max(0,buf_jump-1)
+ buf_atk=max(0,buf_atk-1)
+ buf_sweep=max(0,buf_sweep-1)
 
  -- -- death --
  if state=="death" then
@@ -1425,8 +1430,7 @@ function _update60()
  if py+19>=lvl_h*16 then land_on(lvl_h*16) end
 
  -- clamp to map bounds
- local min_x,max_x=3,lvl_w*16-4
- px=mid(min_x,px,max_x)
+ px=mid(3,px,lvl_w*16-4)
 
  -- hazard tiles
  if tile_flag(px\16,(py+19)\16)&16>0 then hurt_plr() end
@@ -1468,7 +1472,8 @@ function _draw()
   end
  else
   cls(1)
-  draw_bg_layer()
+  draw_mem_layer(1)
+  draw_mem_layer(3)
   draw_main_layer()
   draw_ents()
   draw_sprojs()
