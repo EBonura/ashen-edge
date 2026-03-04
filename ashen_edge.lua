@@ -642,14 +642,15 @@ function check_attacks()
    if fl&12>0 then
     local k=ty*lvl_w+tx+1
     local c=mdat[2][k] mdat[2][k]=0
-    if fl&8>0 then add(parts,{x=tx*16,y=ty*16,vx=rnd(3)-1.5,vy=-rnd(2)-1,age=0,c=c})
-    else for i=1,3 do add(parts,{x=tx*16+8,y=ty*16+8,vx=rnd(3)-1.5,vy=-rnd(2)-1,age=0}) end end
+    if fl&8>0 then mkp(tx*16,ty*16,3).c=c
+    else for i=1,3 do mkp(tx*16+8,ty*16+8,3) end end
    end
   end
  end
  for e in all(ents) do
   if e.type==7 then
-   if h(e.x,e.y,8) then e.lit,e.frame=false,7 end
+   if h(e.x,e.y,8) then e.lit,e.frame=false,7
+    local p=mkp(e.x+8,e.y+8,1) p.cl=8 p.vx=rnd(1)-.5 p.vy=rnd(1)-.5 end
   elseif e.type==3 and e.hp>0
    and e.state~="death" and e.inv_t==0 then
    if h(e.x,e.y,0) then
@@ -667,16 +668,21 @@ function check_attacks()
   end
  end
 end
-
+function mkp(x,y,s)
+ local p={x=x,y=y,vx=rnd(s)-s/2,vy=-rnd(s)-1,age=0}
+ add(parts,p) return p
+end
 function update_parts()
  for p in all(parts) do
   p.x+=p.vx p.y+=p.vy
-  if tile_flag(p.x\16,p.y\16)&9>0 then
-   p.y-=p.vy p.vy*=-0.4 p.vx*=0.7
+  if not p.cl then
+   if tile_flag(p.x\16,p.y\16)&9>0 then
+    p.y-=p.vy p.vy*=-0.4 p.vx*=0.7
+   end
+   p.vy+=0.15
   end
-  p.vy+=0.15
   p.age+=1
-  if p.c then
+  if p.c or p.cl then
    if p.age>30 then del(parts,p) end
   elseif p.age>15 and abs(p.x-px)<10 and abs(p.y-py-11)<10 then
    gems+=1 del(parts,p)
@@ -1282,7 +1288,10 @@ function _update60()
  -- -- state machine --
  local s=state
  local ba=buf_atk>0 or buf_sweep>0
- if s=="idle" or s=="run" then
+ if lr~=0 and anim_done(10) and (s=="land" or (not combo_queued and (s=="attack" or (s=="sweep" and not air_atk)))) then
+  if s~="land" then end_attack() end
+  combo_idx=0 vx,facing=lr*1.5,lr set_anim(a_run,"run")
+ elseif s=="idle" or s=="run" then
   -- walked off ledge (wait 4 frames)
   if not grounded and air_time>4 then
    set_anim(a_fall)
@@ -1341,8 +1350,6 @@ function _update60()
    else
     set_anim(a_idle,"idle")
    end
-  elseif lr~=0 and anim_done(10) then
-   vx,facing=lr*1.5,lr set_anim(a_run,"run")
   end
 
  elseif s=="attack" then
@@ -1365,9 +1372,6 @@ function _update60()
     combo_idx=0
     set_anim(a_idle,"idle")
    end
-  elseif lr~=0 and not combo_queued and anim_done(10) then
-   end_attack() combo_idx=0
-   vx,facing=lr*1.5,lr set_anim(a_run,"run")
   end
 
  elseif s=="sweep" then
@@ -1396,9 +1400,6 @@ function _update60()
     else
      set_anim(a_idle,"idle")
     end
-   elseif lr~=0 and anim_done(10) then
-    end_attack()
-    vx,facing=lr*1.5,lr set_anim(a_run,"run")
    end
   end
 
@@ -1480,6 +1481,7 @@ function _draw()
   for p in all(parts) do
    local qx,qy=p.x-cam_x,p.y-cam_y
    if p.c then tspr(p.c,qx,qy)
+   elseif p.cl then pset(qx,qy,p.cl)
    else circfill(qx,qy,2,8) circfill(qx-1,qy-1,1,14) end
   end
   draw_hp()
