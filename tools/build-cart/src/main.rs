@@ -59,6 +59,7 @@ fn main() {
     let torch_src = dir.join("assets").join("torch").join("Torch 16x16.png");
     let box_src = dir.join("assets").join("border_corner.png");
     let hp_src = dir.join("assets").join("hp_bar.png");
+    let tbar_src = dir.join("assets").join("torch_bar.png");
 
     eprintln!("Loading sprite sheets...");
     eprintln!("  Cell size: {}x{}", CELL_W, CELL_H);
@@ -362,16 +363,15 @@ fn main() {
                 let ch = px.0;
                 if ch[3] < 128 {
                     pixels.push(TRANS);
-                } else if ch[0] > 200 && ch[1] > 200 && ch[2] > 200 {
-                    pixels.push(7); // white = fill
                 } else {
-                    pixels.push(0); // black = outline
+                    pixels.push(7); // white (1bpp: trans + white)
                 }
             }
         }
         (pixels, w, h)
     };
-    let (hp_block, hp_info) = animation::encode_animation("hp_bar", &[hp_pixels], hp_w, hp_h, None, None);
+    let hp_pal = vec![TRANS, 7];
+    let (hp_block, hp_info) = animation::encode_animation("hp_bar", &[hp_pixels], hp_w, hp_h, Some(1), Some(&hp_pal));
     eprintln!("{}", hp_info);
     let hp_chunk = {
         let mut c = vec![1u8, 0, 0, 0, 0];
@@ -379,6 +379,37 @@ fn main() {
         c
     };
     eprintln!("  hp_chunk: {}b", hp_chunk.len());
+
+    // ── Torch bar ──
+    eprintln!("\nEncoding torch bar...");
+    let tbar_frames = {
+        let img = image::open(&tbar_src).expect("torch_bar PNG");
+        let nf = img.dimensions().1 / TBAR_H;
+        let mut frames = Vec::new();
+        for f in 0..nf {
+            let mut pixels = Vec::new();
+            for y in 0..TBAR_H {
+                for x in 0..TBAR_W {
+                    let px = img.get_pixel(x, f * TBAR_H + y);
+                    let ch = px.0;
+                    if ch[3] < 128 {
+                        pixels.push(TRANS);
+                    } else if ch[0] > 200 && ch[1] > 200 && ch[2] > 200 {
+                        pixels.push(7); // white = outline
+                    } else {
+                        pixels.push(8); // red = fill
+                    }
+                }
+            }
+            frames.push(pixels);
+        }
+        frames
+    };
+    let (tbar_block, tbar_info) = animation::encode_animation("tbar", &tbar_frames, TBAR_W, TBAR_H, Some(2), Some(&[TRANS, 0, 7, 8]));
+    total_frames += tbar_frames.len();
+    eprintln!("{}", tbar_info);
+    let tbar_chunk = cart::build_single_anim_chunk(&tbar_block, TBAR_W, TBAR_H);
+    eprintln!("  tbar_chunk: {}b", tbar_chunk.len());
 
     // ── Rebuild char chunk ──
     let num_anims = anim_blocks.len();
@@ -446,6 +477,7 @@ fn main() {
         cart::DataChunk { name: "torch".into(), data: torch_chunk },
         cart::DataChunk { name: "box".into(), data: box_chunk },
         cart::DataChunk { name: "hp".into(), data: hp_chunk },
+        cart::DataChunk { name: "tbar".into(), data: tbar_chunk },
         cart::DataChunk { name: "level".into(), data: map_level_data },
         cart::DataChunk { name: "title".into(), data: title_chunk },
         cart::DataChunk { name: "font".into(), data: font_chunk },
@@ -609,6 +641,11 @@ fn main() {
 
     // HP bar
     gen_lines.push(format!("hp_base={} hp_w={} hp_h={}", layout.placements["hp"], hp_w, hp_h));
+
+    // Torch bar
+    let tbar_base_idx = box_base_idx + 1;
+    gen_lines.push(format!("a_tbar={}", tbar_base_idx));
+    gen_lines.push(format!("tbar_base={} tbar_cw={} tbar_ch={}", layout.placements["tbar"], TBAR_W, TBAR_H));
     gen_lines.push(format!("sfx_confirm={}", 6 + sfx_shift));
 
     // Font lookup

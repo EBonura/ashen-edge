@@ -11,8 +11,10 @@
 -- attack1 -> cross_slice
 combo_chain={a_atk1,a_xslice}
 
--- game state: 0=title, 1=play
+-- game state: 0=title, 1=play, 3=upgrade
 gs,tt,zt=1,0,nil
+torches,plr_atk,max_hp=0,1,3
+torch_got={}
 
 -- fade: v=0 clear, v=8 black, d=direction (1=out,-1=in,0=idle)
 fade_v,fade_d,fade_t=8,-1,0
@@ -226,8 +228,10 @@ function cache_anims()
  la(portal_base,a_ptl,portal_cw,portal_ch)
  la(torch_base,a_torch,torch_cw,torch_ch)
  la(box_base,a_box,box_s,box_s)
+ la(tbar_base,a_tbar,tbar_cw,tbar_ch)
  local ai=read_anim(1,hp_base)
- hp_buf=decode_anim(ai)[1][1]
+ local hf=decode_anim(ai)[1]
+ hp_buf,hpbx,hpby,hpbw,hpbh=unpack(hf)
 end
 
 function hurt_plr()
@@ -245,16 +249,17 @@ function hurt_plr()
 end
 
 function draw_hp()
- local fill=hp_w-hp_w*plr_hp/3
+ local ox=1
+ local fill=hpbw-hpbw*plr_hp/max_hp
  local tt=time()*3
  local idx=1
- for y=0,hp_h-1 do
+ for y=0,hpbh-1 do
   local wave=sin(y*0.12+tt)*1.5
-  for x=0,hp_w-1 do
-   local c=ord(hp_buf,idx) idx+=1
-   if c~=trans then
-    pset(x,y,c>0 and(hp_w-1-x>=fill+wave and 8 or 7)or 0)
+  for x=0,hpbw-1 do
+   if ord(hp_buf,idx)~=trans then
+    pset(ox+hpbx+x,hpby+y,hpbw-1-x>=fill+wave and 8 or 2)
    end
+   idx+=1
   end
  end
 end
@@ -469,7 +474,7 @@ end
 -- -- game --
 
 function reset_game()
- plr_hp,plr_inv=3,0
+ plr_hp,plr_inv=max_hp,0
  px,py=ckpt_x,ckpt_y
  safe_x,safe_y=px,py
  vx,vy=0,0
@@ -593,16 +598,22 @@ function check_attacks()
    if fl&12>0 then
     local k=ty*lvl_w+tx+1
     local c=mdat[2][k] mdat[2][k]=0
-    if fl&8>0 then mkp(tx*16,ty*16,3).c=c
-    else for i=1,3 do mkp(tx*16+8,ty*16+8,3) end end
+    if fl&8>0 then mkp(tx*16,ty*16,3).c=c pemit(tx*16+8,ty*16+8,5,1,5)
+    else pemit(tx*16+8,ty*16+8,8,2,5) end
+   elseif fl&1>0 then
+    local q=mkp(tx*16+8,ty*16+8,1) q.cl=0
    end
   end
  end
  for e in all(ents) do
   local t=e.type
   if t==4 then
-   if h(e.x,e.y,8) then e.lit,e.frame=false,7
-    local p=mkp(e.x+8,e.y+8,1) p.cl=8 p.vx=rnd(1)-.5 p.vy=rnd(1)-.5 end
+   if h(e.x,e.y,8) and e.lit then
+    e.lit,e.frame=false,7
+    torches+=1
+    torch_got[e.ty*256+e.tx]=true
+    pemit(e.x+8,e.y+8,9,2,10)
+   end
   elseif t>=6 and e.hp>0 and e.state~="death" and e.inv_t==0 then
    if t==6 then
     if h(e.x,e.y,0) then ent_hurt(e,e.da,e.ha) end
@@ -621,21 +632,29 @@ function mkp(x,y,s)
  local p={x=x,y=y,vx=rnd(s)-s/2,vy=-rnd(s)-1,age=0}
  add(parts,p) return p
 end
+function pemit(x,y,cl,r,d)
+ add(parts,{em=true,x=x,y=y,cl=cl,r=r,d=d})
+end
 function update_parts()
  for p in all(parts) do
-  p.x+=p.vx p.y+=p.vy
-  if not p.cl then
-   if tile_flag(p.x\16,p.y\16)&9>0 then
-    p.y-=p.vy p.vy*=-0.4 p.vx*=0.7
+  if p.em then
+   for i=1,p.r do local q=mkp(p.x,p.y,1) q.cl=p.cl end
+   p.d-=1 if p.d<=0 then del(parts,p) end
+  else
+   p.x+=p.vx p.y+=p.vy
+   if not p.cl then
+    if tile_flag(p.x\16,p.y\16)&9>0 then
+     p.y-=p.vy p.vy*=-0.4 p.vx*=0.7
+    end
+    p.vy+=0.08
    end
-   p.vy+=0.08
-  end
-  p.age+=1
-  if p.c or p.cl then
-   if p.age>30 then del(parts,p) end
-  elseif p.age>15 and abs(p.x-px)<10 and abs(p.y-py-11)<10 then
-   gems+=1 del(parts,p)
-  elseif p.age>900 then del(parts,p)
+   p.age+=1
+   if p.c or p.cl then
+    if p.age>60 then del(parts,p) end
+   elseif p.age>15 and abs(p.x-px)<10 and abs(p.y-py-11)<10 then
+    gems+=1 del(parts,p)
+   elseif p.age>900 then del(parts,p)
+   end
   end
  end
 end
@@ -667,8 +686,12 @@ function init_ents()
    e.anim_t,e.active,e.cost=0,false,e.cost or 0
   elseif t==4 then
    e.x,e.y=e.tx*16,e.ty*16
-   e.anim,e.frame=a_torch,1
-   e.anim_t,e.lit=0,true
+   e.anim_t=0
+   if torch_got[e.ty*256+e.tx] then
+    e.anim,e.frame,e.lit=a_torch,7,false
+   else
+    e.anim,e.frame,e.lit=a_torch,1,true
+   end
   elseif t==6 then
    e.x,e.y=e.tx*16,e.ty*16
    e.surf,e.mdir=0,1
@@ -749,7 +772,8 @@ function toggle_switch(e)
 end
 
 function ent_hurt(e,da,ha)
- e.hp,e.inv_t=e.hp-1,20
+ e.hp,e.inv_t=e.hp-plr_atk,20
+ pemit(e.x,e.y-8,8,2,8)
  if e.hp<=0 then
   e.vx=0 sp_set_anim(e,da,"death")
  else
@@ -1053,7 +1077,7 @@ function update_ents()
  if near_ent and btnp(3) and gems>=near_ent.cost then
   gems-=near_ent.cost
   if near_ent.type==2 then toggle_switch(near_ent)
-  else near_ent.active,ckpt_x,ckpt_y,plr_hp=true,near_ent.x,near_ent.y,3 end
+  else near_ent.active,ckpt_x,ckpt_y,plr_hp=true,near_ent.x,near_ent.y,max_hp end
  end
 end
 
@@ -1177,6 +1201,12 @@ function _update60()
     fade_v,fade_d=0,0
    end
   end
+ end
+ if gs==3 then
+  if btnp(4) then plr_atk+=1 torches-=7 gs=1
+  elseif btnp(5) then max_hp+=1 plr_hp+=1 torches-=7 gs=1
+  end
+  return
  end
  if gs~=1 then
   if fade_d==0 and (btnp(4) or btnp(5)) then sfx(sfx_confirm) fade_d=1 end
@@ -1365,6 +1395,7 @@ function _update60()
  update_sprojs()
  update_parts()
 
+ if torches>=7 then gs=3 end
  -- update camera
  update_camera()
 
@@ -1413,12 +1444,16 @@ function _draw()
    else circfill(qx,qy,2,8) circfill(qx-1,qy-1,1,14) end
   end
   draw_hp()
-  p8print(""..gems,2,hp_h+4,8)
+  draw_char(a_tbar,min(torches,6)+1,0,hp_h)
+  p8print(""..gems,1,hp_h+tbar_ch+1,8)
   if near_ent then
    local c=near_ent.cost
    text_box(c>0 and "\131 "..c or "\131",near_ent.x-cam_x,near_ent.y-20-cam_y,gems>=c and 7 or 8)
   end
   if zt then text_box(_zt[zt],64,108,7) end
+  if gs==3 then
+   text_box("\151 attack\n\142 health",64,64,7)
+  end
  end
  apply_fade(fade_v)
 end
