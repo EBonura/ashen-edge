@@ -597,9 +597,9 @@ function check_attacks()
     local k=ty*lvl_w+tx+1
     local c=mdat[2][k] mdat[2][k]=0
     if fl&8>0 then mkp(tx*16,ty*16,3).c=c pemit(tx*16+8,ty*16+8,5,1,5)
-    else pemit(tx*16+8,ty*16+8,8,2,5) end
+    else mkp(tx*16+8,ty*16+8,3) pemit(tx*16+8,ty*16+8,8,2,5) end
    elseif fl&1>0 then
-    pemit(tx*16+8,ty*16+8,0,2,3,2)
+    pemit(tx*16+8,ty*16+8,5,2,3,2)
    end
   end
  end
