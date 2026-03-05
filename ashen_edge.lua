@@ -517,7 +517,7 @@ function start_combo()
  vx=0
  set_anim(combo_chain[1],"attack")
  sa(combo_chain[1])
- buf_atk=0
+ buf_atk=0 sparked={}
 end
 
 function start_sweep()
@@ -525,7 +525,7 @@ function start_sweep()
  set_anim(a_sweep,"sweep")
  sa(a_sweep)
  air_atk=false
- buf_sweep=0
+ buf_sweep=0 sparked={}
 end
 
 function start_air_atk()
@@ -533,7 +533,7 @@ function start_air_atk()
  cur_anim,cur_frame,anim_timer=a_xslice,1,0
  sa(a_xslice)
  state="sweep"
- buf_atk,buf_sweep=0,0
+ buf_atk,buf_sweep=0,0 sparked={}
 end
 
 function try_move_x(dx)
@@ -598,8 +598,9 @@ function check_attacks()
     local c=mdat[2][k] mdat[2][k]=0
     if fl&8>0 then mkp(tx*16,ty*16,3).c=c pemit(tx*16+8,ty*16+8,5,1,5)
     else mkp(tx*16+8,ty*16+8,3) pemit(tx*16+8,ty*16+8,8,2,5) end
-   elseif fl&1>0 then
-    pemit(tx*16+8,ty*16+8,5,2,3,2)
+   elseif fl&1>0 and not sparked[ty*256+tx] then
+    sparked[ty*256+tx]=true
+    pemit(tx*16+8,ty*16+8,7,2,3,2)
    end
   end
  end
@@ -1109,7 +1110,7 @@ function text_box(txt,cx,cy,col)
   if lw[i]>mw then mw=lw[i] end
  end
  local px,py,lh=8,5,font_ch-2
- local bh=lh*nl+py*2
+ local bh=lh*nl+py*2+2
  local bx,by=cx-mw\2-px,cy-bh\2
  local bw=mw+px*2
  local s=box_s
