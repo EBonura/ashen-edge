@@ -318,7 +318,7 @@ pub fn build_level_data(
                 continue;
             }
         };
-        let base_pixels = remap_tile_image(tile_img, band_colors_for_tile(ti), false);
+        let base_pixels = remap_tile_image(tile_img, band_colors_for_tile(ti));
         if used_base[1].contains(&ti) {
             let rt_id = add_rt_tile(base_pixels.clone(), &mut rt_tiles, &mut rt_hashes);
             main_base_rt.insert(ti, rt_id);
@@ -348,14 +348,7 @@ pub fn build_level_data(
                 eprintln!("  WARNING: layer {} tile index {} out of range, skipping", l, ti);
                 continue;
             };
-            // BG tiles from rows 0-5 have inverted alpha in the PNG
-            let invert = if ti >= main_count {
-                let name = &bg_tileset[ti - main_count].0;
-                name.starts_with("BG_00") || name.starts_with("BG_01") ||
-                name.starts_with("BG_02") || name.starts_with("BG_03") ||
-                name.starts_with("BG_04") || name.starts_with("BG_05")
-            } else { false };
-            let base_pixels = remap_tile_image(tile_img, band_colors_for_tile(ti), invert);
+            let base_pixels = remap_tile_image(tile_img, band_colors_for_tile(ti));
             let rot = xf & 3;
             let hflip = xf & 4 != 0;
             let vflip = xf & 8 != 0;
