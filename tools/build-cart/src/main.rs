@@ -665,8 +665,16 @@ fn main() {
     gen_lines.push("font_map={} for i=1,#_fc do font_map[ord(sub(_fc,i,i))]=i end".into());
 
     // Player anchors
-    let anc_parts: Vec<String> = all_frames.iter().map(|(_, frames)| {
-        compute_anchors(frames, CELL_W, Some(0)).iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",")
+    let idle_anc = compute_anchors(&all_frames[0].1, CELL_W, Some(0));
+    let idle_anchor = idle_anc[0]; // idle frame 1 anchor
+    let anc_parts: Vec<String> = all_frames.iter().map(|(name, frames)| {
+        let anchors = compute_anchors(frames, CELL_W, Some(0));
+        if *name == "hit" {
+            // Force hit anchors to match idle so there's no visual jump on hurt
+            vec![idle_anchor; anchors.len()].iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",")
+        } else {
+            anchors.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(",")
+        }
     }).collect();
     let anc_str = anc_parts.join("|");
     gen_lines.push(format!("_a=split(\"{}\",\"|\",false)", anc_str));
