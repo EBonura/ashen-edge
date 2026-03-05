@@ -144,6 +144,7 @@ textarea { border-radius: 4px; }
 .pixedit-swatch-trans { background:repeating-conic-gradient(#444 0% 25%, #222 0% 50%) 50%/10px 10px; }
 #pixedit-btns { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
 #pixedit-btns button { flex:1; min-width:60px; }
+#pixedit-btns button.active { background:var(--accent); border-color:var(--accent); color:var(--text); }
 
 /* Palette zoom */
 #pal-zoom-in, #pal-zoom-out { background: var(--bg-btn); color: var(--text-label); border: 1px solid var(--border); cursor: pointer; padding: 6px 12px; font-size: 14px; font-family: monospace; }
@@ -357,6 +358,11 @@ textarea { border-radius: 4px; }
       <div>
         <div class="tb-label">Preview</div>
         <canvas id="pixedit-preview" width="16" height="16"></canvas>
+        <div class="tb-label" style="margin-top:10px;">Tool</div>
+        <div id="pixedit-btns">
+          <button id="pixedit-tool-pencil" class="active">Pencil</button>
+          <button id="pixedit-tool-fill">Fill</button>
+        </div>
         <div class="tb-label" style="margin-top:10px;">Color</div>
         <div id="pixedit-swatches"></div>
         <div id="pixedit-btns">
@@ -2400,7 +2406,31 @@ function pixEditEyedrop(px, py) {
   pixEditBuildSwatches();
 }
 
+function pixEditFill(px, py) {
+  if (px < 0 || px > 15 || py < 0 || py > 15) return;
+  const targetP = pixEditPixels[py * 16 + px];
+  const targetA = targetP.a;
+  const targetBand = targetA === 0 ? -1 : lumToBand(targetP.lum);
+  if (targetBand === pixEditBand) return; // already same color
+  const newPx = pixEditBand === -1 ? {lum: 0, a: 0} : {lum: BAND_GREY[pixEditBand], a: 255};
+  const stack = [[px, py]];
+  const visited = new Uint8Array(256);
+  while (stack.length) {
+    const [cx, cy] = stack.pop();
+    const ci = cy * 16 + cx;
+    if (cx < 0 || cx > 15 || cy < 0 || cy > 15 || visited[ci]) continue;
+    const p = pixEditPixels[ci];
+    const pBand = p.a === 0 ? -1 : lumToBand(p.lum);
+    if (pBand !== targetBand) continue;
+    visited[ci] = 1;
+    pixEditPixels[ci] = {lum: newPx.lum, a: newPx.a};
+    stack.push([cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]);
+  }
+  pixEditRender();
+}
+
 // Canvas mouse handling
+let peCurrentTool = "pencil";
 let pePainting = false;
 peCanvas.addEventListener("mousedown", e => {
   if (e.button === 2) { // right click = eyedrop
@@ -2410,10 +2440,11 @@ peCanvas.addEventListener("mousedown", e => {
     pixEditEyedrop(px, py);
     return;
   }
-  pePainting = true;
   const r = peCanvas.getBoundingClientRect();
   const px = Math.floor((e.clientX - r.left - 1) / PECELL);
   const py = Math.floor((e.clientY - r.top - 1) / PECELL);
+  if (peCurrentTool === "fill") { pixEditFill(px, py); return; }
+  pePainting = true;
   pixEditPaint(px, py);
 });
 peCanvas.addEventListener("mousemove", e => {
@@ -2425,6 +2456,19 @@ peCanvas.addEventListener("mousemove", e => {
 });
 document.addEventListener("mouseup", () => { pePainting = false; });
 peCanvas.addEventListener("contextmenu", e => e.preventDefault());
+
+document.getElementById("pixedit-tool-pencil").addEventListener("click", () => {
+  peCurrentTool = "pencil";
+  document.getElementById("pixedit-tool-pencil").classList.add("active");
+  document.getElementById("pixedit-tool-fill").classList.remove("active");
+  peCanvas.style.cursor = "crosshair";
+});
+document.getElementById("pixedit-tool-fill").addEventListener("click", () => {
+  peCurrentTool = "fill";
+  document.getElementById("pixedit-tool-fill").classList.add("active");
+  document.getElementById("pixedit-tool-pencil").classList.remove("active");
+  peCanvas.style.cursor = "pointer";
+});
 
 // Save
 document.getElementById("pixedit-save").addEventListener("click", () => {
