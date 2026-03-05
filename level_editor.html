@@ -267,19 +267,14 @@ textarea { border-radius: 4px; }
     <div class="tb-label">Layers</div>
     <div class="layer-switch">
       <div class="layer-row" data-layer="0">
-        <button class="layer-sel" data-layer="0" data-tip="Background layer 1 (1)">BG1</button>
-        <input type="number" class="layer-plx parallax-input" data-layer="0" value="0.5" step="0.05" min="0" max="2" data-tip="BG1 parallax">
-        <button class="layer-eye" data-layer="0" data-tip="Toggle BG1 visibility">&#128065;</button>
+        <button class="layer-sel" data-layer="0" data-tip="Background layer (1)">BG</button>
+        <input type="number" class="layer-plx parallax-input" data-layer="0" value="1.0" step="0.05" min="0" max="2" data-tip="BG parallax">
+        <button class="layer-eye" data-layer="0" data-tip="Toggle BG visibility">&#128065;</button>
       </div>
       <div class="layer-row active" data-layer="1">
         <button class="layer-sel" data-layer="1" data-tip="Main layer (2)">Main</button>
         <input type="number" class="layer-plx parallax-input" data-layer="1" value="1.0" step="0.05" min="0" max="2" data-tip="Main parallax">
         <button class="layer-eye" data-layer="1" data-tip="Toggle Main visibility">&#128065;</button>
-      </div>
-      <div class="layer-row" data-layer="2">
-        <button class="layer-sel" data-layer="2" data-tip="Background layer 2 (3)">BG2</button>
-        <input type="number" class="layer-plx parallax-input" data-layer="2" value="1.0" step="0.05" min="0" max="2" data-tip="BG2 parallax">
-        <button class="layer-eye" data-layer="2" data-tip="Toggle BG2 visibility">&#128065;</button>
       </div>
     </div>
   </div>
@@ -394,12 +389,12 @@ const BG_TILE_ROWS = 9;
 
 // State
 let mapW = 128, mapH = 32;
-const NUM_LAYERS = 3;
-const LAYER_NAMES = ["BG1","Main","BG2"];
-let layers = [null,null,null];
+const NUM_LAYERS = 2;
+const LAYER_NAMES = ["BG","Main"];
+let layers = [null,null];
 let curLayer = 1;
-let layerVisible = [true,true,true];
-let layerParallax = [0.5, 1.0, 1.0];
+let layerVisible = [true,true];
+let layerParallax = [1.0, 1.0];
 let map = [];
 let tileFlags = new Uint8Array(TILES.length);
 let selectedTiles = [0];
@@ -537,7 +532,7 @@ function srcTileInfo(idx) { return isBgTile(idx) ? BG_TILES[idx - MAIN_COUNT] : 
 function srcRawImage(idx) { return isBgTile(idx) ? bgTileImages[idx - MAIN_COUNT] : tileImages[idx]; }
 function srcLum(idx) { return isBgTile(idx) ? bgTileLum[idx - MAIN_COUNT] : tileLum[idx]; }
 // Per-layer remapped images (all tiles remapped with that layer's band colors)
-let layerRemapped = [[], [], []]; // layerRemapped[L][unifiedIdx] = canvas
+let layerRemapped = [[], []]; // layerRemapped[L][unifiedIdx] = canvas
 function imagesForLayer(L) { return layerRemapped[L]; }
 function rawImagesForLayer(L) { return layerRemapped[L]; } // fallback to remapped
 function updateXformStatus() {
@@ -1117,7 +1112,7 @@ function render() {
   canvas.style.left = panX + "px"; canvas.style.top = panY + "px";
   ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = P8_HEX[mapBgColor]; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const DRAW_ORDER = [2, 0, 1]; // BG2 (furthest), BG1, Main (closest)
+  const DRAW_ORDER = [0, 1]; // BG (furthest), Main (closest)
   for (const L of DRAW_ORDER) {
     if (!layerVisible[L]) continue;
     const lm = layers[L].map, lx = layers[L].xform;
@@ -1652,7 +1647,6 @@ document.addEventListener("keydown", e => {
   }
   if (e.code==="Digit1") { switchLayer(0); return; }
   if (e.code==="Digit2") { switchLayer(1); return; }
-  if (e.code==="Digit3") { switchLayer(2); return; }
   if (e.code==="KeyB") setTool("pencil");
   if (e.code==="KeyT") setTool("rect");
   if (e.code==="KeyR") { if (selection) { rotateSelectionCW(); } else { curRotation = (curRotation + 1) % 4; updateXformStatus(); } }
@@ -1806,22 +1800,21 @@ function autoLoad() { try { const raw=localStorage.getItem("pico8_level_autosave
   if(!d.width) return false;
   mapW=d.width;mapH=d.height;
   if(d.layers) {
-    if(d.version>=4) {
-      for(let i=0;i<Math.min(d.layers.length,NUM_LAYERS);i++) layers[i]={map:d.layers[i].map.map(r=>new Uint8Array(r)),xform:d.layers[i].xform.map(r=>new Uint8Array(r))};
+    const ll=i=>({map:d.layers[i].map.map(r=>new Uint8Array(r)),xform:d.layers[i].xform.map(r=>new Uint8Array(r))});
+    if(d.version>=5) {
+      for(let i=0;i<Math.min(d.layers.length,NUM_LAYERS);i++) layers[i]=ll(i);
       for(let i=d.layers.length;i<NUM_LAYERS;i++) layers[i]=makeEmptyLayer();
-    } else if(d.version>=3||d.bgTiles) {
-      for(let i=0;i<Math.min(d.layers.length,NUM_LAYERS);i++) layers[i]={map:d.layers[i].map.map(r=>new Uint8Array(r)),xform:d.layers[i].xform.map(r=>new Uint8Array(r))};
-      for(let i=d.layers.length;i<NUM_LAYERS;i++) layers[i]=makeEmptyLayer();
-      // v3→v4 migration: offset layer 0 BG tile indices by MAIN_COUNT
-      const lm0=layers[0].map;for(let y=0;y<lm0.length;y++)for(let x=0;x<lm0[y].length;x++)if(lm0[y][x]!==255)lm0[y][x]+=MAIN_COUNT;
+    } else if(d.version>=4) {
+      // v4 3-layer [BG1,Main,BG2] -> [BG2,Main]
+      layers[0]=d.layers[2]?ll(2):makeEmptyLayer();
+      layers[1]=d.layers[1]?ll(1):makeEmptyLayer();
     } else {
       layers[0]=makeEmptyLayer();
-      layers[1]={map:d.layers[1].map.map(r=>new Uint8Array(r)),xform:d.layers[1].xform.map(r=>new Uint8Array(r))};
-      for(let i=2;i<NUM_LAYERS;i++) layers[i]=makeEmptyLayer();
+      layers[1]=d.layers[1]?ll(1):makeEmptyLayer();
     }
   } else {
     for(let i=0;i<NUM_LAYERS;i++) layers[i]=makeEmptyLayer();
-    layers[1]={map:d.map.map(r=>new Uint8Array(r)),xform:d.mapXform?d.mapXform.map(r=>new Uint8Array(r)):layers[1].xform};
+    if(d.map) layers[1]={map:d.map.map(r=>new Uint8Array(r)),xform:d.mapXform?d.mapXform.map(r=>new Uint8Array(r)):layers[1].xform};
   }
   map=layers[curLayer].map;mapXform=layers[curLayer].xform;
   if(d.flags) for(let i=0;i<Math.min(d.flags.length,tileFlags.length);i++) tileFlags[i]=d.flags[i];
@@ -1874,7 +1867,7 @@ function getLevelData() {
   const bgTileEdits = {};
   BG_TILES.forEach((t, i) => { if (t.b64 !== origBgTileB64[t.name]) bgTileEdits[t.name] = {b64: t.b64, lum: bgTileLum[i]}; });
   return {
-    version: 4,
+    version: 5,
     width: mapW,
     height: mapH,
     tiles: TILES.map(t => t.name),
@@ -1901,39 +1894,26 @@ function applyLevelData(d) {
   pushUndo();
   mapW = d.width; mapH = d.height;
   if (d.layers) {
-    if (d.version >= 4) {
-      // v4: unified tile indices across all layers
-      for (let i = 0; i < Math.min(d.layers.length, NUM_LAYERS); i++) {
-        layers[i] = {
-          map: d.layers[i].map.map(r => new Uint8Array(r)),
-          xform: d.layers[i].xform.map(r => new Uint8Array(r))
-        };
-      }
+    const loadLayer = (src) => ({
+      map: src.map.map(r => new Uint8Array(r)),
+      xform: src.xform.map(r => new Uint8Array(r))
+    });
+    if (d.version >= 5) {
+      // v5: 2-layer format [BG, Main]
+      for (let i = 0; i < Math.min(d.layers.length, NUM_LAYERS); i++) layers[i] = loadLayer(d.layers[i]);
       for (let i = d.layers.length; i < NUM_LAYERS; i++) layers[i] = makeEmptyLayer();
+    } else if (d.version >= 4) {
+      // v4: 3-layer [BG1, Main, BG2] — drop BG1, reorder to [BG2, Main]
+      layers[0] = d.layers[2] ? loadLayer(d.layers[2]) : makeEmptyLayer();
+      layers[1] = d.layers[1] ? loadLayer(d.layers[1]) : makeEmptyLayer();
     } else if (d.version >= 3 || d.bgTiles) {
-      // v3 format: BG layer(0) uses local BG tile indices — migrate to unified
-      for (let i = 0; i < Math.min(d.layers.length, NUM_LAYERS); i++) {
-        layers[i] = {
-          map: d.layers[i].map.map(r => new Uint8Array(r)),
-          xform: d.layers[i].xform.map(r => new Uint8Array(r))
-        };
-      }
-      for (let i = d.layers.length; i < NUM_LAYERS; i++) layers[i] = makeEmptyLayer();
-      // Migrate layer 0: offset BG tile indices by MAIN_COUNT
-      const lm = layers[0].map;
-      for (let y = 0; y < lm.length; y++) {
-        for (let x = 0; x < lm[y].length; x++) {
-          if (lm[y][x] !== 255) lm[y][x] += MAIN_COUNT;
-        }
-      }
+      // v3: BG layer(0) uses local BG indices — migrate Main and BG2
+      layers[0] = d.layers[2] ? loadLayer(d.layers[2]) : makeEmptyLayer();
+      layers[1] = d.layers[1] ? loadLayer(d.layers[1]) : makeEmptyLayer();
     } else {
-      // v2: BG layer had main tileset indices — clear BG, keep Main
+      // v2: keep Main only
       layers[0] = makeEmptyLayer();
-      layers[1] = {
-        map: d.layers[1].map.map(r => new Uint8Array(r)),
-        xform: d.layers[1].xform.map(r => new Uint8Array(r))
-      };
-      for (let i = 2; i < NUM_LAYERS; i++) layers[i] = makeEmptyLayer();
+      layers[1] = d.layers[1] ? loadLayer(d.layers[1]) : makeEmptyLayer();
     }
   } else {
     // v1 migration: put map into Main layer

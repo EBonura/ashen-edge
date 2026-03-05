@@ -102,50 +102,17 @@ pub fn read_level_json(json_path: &Path) -> Option<MapData> {
     let empty_grid = || vec![vec![255i32; w]; h];
     let zero_grid = || vec![vec![0i32; w]; h];
 
-    let (mut map_grids, mut xform_grids) = if let Some(layers) = &data.layers {
-        let mg: Vec<Vec<Vec<i32>>> = layers.iter().map(|l| l.map.clone()).collect();
-        let xg: Vec<Vec<Vec<i32>>> = layers.iter().map(|l| l.xform.clone()).collect();
+    let (map_grids, xform_grids) = if let Some(layers) = &data.layers {
+        let mut mg: Vec<Vec<Vec<i32>>> = layers.iter().map(|l| l.map.clone()).collect();
+        let mut xg: Vec<Vec<Vec<i32>>> = layers.iter().map(|l| l.xform.clone()).collect();
+        while mg.len() < 2 { mg.push(empty_grid()); }
+        while xg.len() < 2 { xg.push(zero_grid()); }
+        mg.truncate(2);
+        xg.truncate(2);
         (mg, xg)
-    } else if let Some(map) = &data.map {
-        let xf = data.map_xform.clone().unwrap_or_else(|| zero_grid());
-        (
-            vec![empty_grid(), map.clone(), empty_grid()],
-            vec![zero_grid(), xf, zero_grid()],
-        )
     } else {
         return None;
     };
-
-    // Handle version-specific index offsets
-    let version = data.version.unwrap_or(2);
-    if let Some(_layers) = &data.layers {
-        if version >= 4 {
-            // v4: already unified indices
-        } else if version >= 3 || data.bg_tiles.is_some() {
-            // v3: layer 0 uses local BG indices -> offset
-            for y in 0..map_grids[0].len() {
-                for x in 0..map_grids[0][y].len() {
-                    if map_grids[0][y][x] != 255 {
-                        map_grids[0][y][x] += main_count as i32;
-                    }
-                }
-            }
-        } else {
-            // v2: BG layer had main tileset indices -> clear
-            map_grids[0] = empty_grid();
-            xform_grids[0] = zero_grid();
-        }
-    }
-
-    // Pad to 3 layers
-    while map_grids.len() < 3 {
-        map_grids.push(empty_grid());
-    }
-    while xform_grids.len() < 3 {
-        xform_grids.push(zero_grid());
-    }
-    map_grids.truncate(3);
-    xform_grids.truncate(3);
 
     let mut flags = vec![0u8; 256];
     if let Some(f) = &data.flags {
@@ -266,6 +233,9 @@ pub fn build_level_data(
     eprintln!("  Spawn: ({}, {})", map_data.spawn_x, map_data.spawn_y);
     eprintln!("  Unified tileset: {} main + {} BG tiles", main_count, bg_tileset.len());
 
+    // 2-layer format: [BG, Main] — Main is layer index 1
+    let main_layer = 1;
+
     // Step 1: Collect used tiles per layer (base + rot90 for all layers)
     let mut used_base: Vec<HashSet<usize>> = vec![HashSet::new(); num_layers];
     let mut used_rot90: Vec<HashSet<usize>> = vec![HashSet::new(); num_layers];
@@ -366,8 +336,8 @@ pub fn build_level_data(
     // Process main-layer tiles first (these become "spr" tiles)
     let main_used: Vec<usize> = {
         let mut s: HashSet<usize> = HashSet::new();
-        s.extend(&used_base[1]);
-        s.extend(&used_rot90[1]);
+        s.extend(&used_base[main_layer]);
+        s.extend(&used_rot90[main_layer]);
         let mut v: Vec<usize> = s.into_iter().collect();
         v.sort();
         v
@@ -398,7 +368,7 @@ pub fn build_level_data(
     // Process BG-only tiles (not already added by main layer)
     let bg_only: Vec<usize> = {
         let mut s: HashSet<usize> = HashSet::new();
-        for l in [0, 2] {
+        for l in [0] {
             s.extend(&used_base[l]);
             s.extend(&used_rot90[l]);
         }
@@ -533,7 +503,7 @@ pub fn build_level_data(
 
     // Step 4: Build cell grids and encode layers
     let mut layer_data = Vec::new();
-    let layer_names = ["BG1", "Main", "BG2"];
+    let layer_names = ["BG", "Main"];
     for l in 0..num_layers {
         let cell_grid: Vec<Vec<u16>> = (0..map_h)
             .map(|y| {
@@ -615,7 +585,7 @@ pub fn build_level_data(
     } else {
         gen.push("spn_x=0 spn_y=0".to_string());
     }
-    let px_vals: String = map_data.parallax.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+    let px_vals: String = map_data.parallax.iter().take(num_layers).map(|p| p.to_string()).collect::<Vec<_>>().join(",");
     gen.push(format!("lplx={{{}}}", px_vals));
     let flag_vals: String = (1..=num_rt)
         .map(|rt_id| rt_tile_flags.get(&rt_id).unwrap_or(&0).to_string())

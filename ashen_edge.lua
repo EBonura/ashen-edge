@@ -321,7 +321,7 @@ end
 -- -- tile/map system --
 
 -- map buffers: mdat[layer][y*lvl_w+x+1]
--- layer 1=bg, 2=main, 3=fg
+-- layer 1=bg, 2=main
 mdat={}
 cam_x,cam_y=0,0
 
@@ -1418,7 +1418,6 @@ function _draw()
   end
  else
   cls(lvl_bg)
-  draw_layer(3)
   draw_layer(1)
   draw_layer(2)
   draw_ents()
