@@ -1391,7 +1391,7 @@ function _update60()
  update_sprojs()
  update_parts()
 
- if torches>=7 then gs=3 end
+ if torches>=7 and btnp(3) then gs=3 end
  -- update camera
  update_camera()
 
@@ -1445,9 +1445,12 @@ function _draw()
    local c=near_ent.cost
    text_box(c>0 and "\131 "..c or "\131",near_ent.x-cam_x,near_ent.y-20-cam_y,gems>=c and 7 or 8)
   end
-  if zt then text_box(_zt[zt],64,108,7) end
   if gs==3 then
-   text_box("\151 attack\n\142 health",64,64,7)
+   text_box("what will the\nflames grant?\n\151 attack\n\142 health",64,64,7)
+  elseif torches>=7 then
+   text_box("\131 embrace the flames",64,108,t()%1<.5 and 6 or 0)
+  elseif zt then
+   text_box(_zt[zt],64,108,7)
   end
  end
  apply_fade(fade_v)
