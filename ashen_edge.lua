@@ -646,77 +646,35 @@ end
 
 -- -- entity system --
 
-function init_bot(e,a,hp)
- e.x,e.y=e.tx*16+8,(e.ty+1)*16
- e.vx,e.vy,e.mdir=0,0,1
- e.anim,e.frame=a,1
- e.state,e.anim_t="sleep",0
- e.hp,e.inv_t,e.atk_cd=hp,0,0
- e.grounded,e.fired=false,false
- e.patrol_t,e.walk_count=0,0
-end
-
 function init_ents()
+ local ek=split"anim,frame,xo,yo,hp,hx0,hy0,hx1,hy1,ia,wa,ws,sa,scd,spt,fx,fy,fs,dr,dyr,dyo,da,ha,aa,ca,wr"
+ local etb={et1,et2,et3,et4,nil,et6,et7,et8,et9}
  for e in all(ents) do
   local t=e.type
-  if t==1 then
-   e.anim,e.frame,e.state=a_door,15,0
-  elseif t==2 then
-   e.x,e.y,e.anim,e.frame=e.tx*16+8,e.ty*16+8,a_sid,1
-   e.state,e.cooldown,e.cost=0,0,e.cost or 0
-  elseif t==3 then
-   e.x,e.y=e.tx*16,e.ty*16
-   e.x+=8 e.y+=16
-   e.anim,e.frame=a_ptl,1
-   e.anim_t,e.active,e.cost=0,false,e.cost or 0
-  elseif t==4 then
-   e.x,e.y=e.tx*16,e.ty*16
-   e.anim_t,e.inv_t=0,0
-   e.hx0,e.hy0,e.hx1,e.hy1=-8,-8,24,24
-   if torch_got[e.ty*256+e.tx] then
-    e.anim,e.frame,e.hp=a_torch,7,0
-   else
-    e.anim,e.frame,e.hp=a_torch,1,1
+  local v=etb[t]
+  if v then
+   for i=1,#v do e[ek[i]]=v[i] end
+   e.x,e.y=e.tx*16+e.xo,e.ty*16+e.yo
+   if t==1 then e.state=0
+   elseif t==2 then e.state,e.cooldown,e.cost=0,0,e.cost or 0
+   elseif t==3 then e.anim_t,e.active,e.cost=0,false,e.cost or 0
+   elseif t==4 then
+    e.anim_t,e.inv_t=0,0
+    if torch_got[e.ty*256+e.tx] then e.frame,e.hp=7,0 end
+   elseif t==6 then
+    e.surf,e.mdir=0,1
+    e.state,e.anim_t="idle",0
+    e.atk_cd,e.fired=0,false
+    e.inv_t,e.move_acc=0,0
+    e.patrol_t,e.walk_count=60,0
+   elseif t>=7 then
+    e.vx,e.vy,e.mdir=0,0,1
+    e.state,e.anim_t="sleep",0
+    e.inv_t,e.atk_cd=0,0
+    e.grounded,e.fired=false,false
+    e.patrol_t,e.walk_count=0,0
+    if t==7 then e.wka=a_wbwk end
    end
-  elseif t==6 then
-   e.x,e.y=e.tx*16,e.ty*16
-   e.surf,e.mdir=0,1
-   e.anim,e.frame=a_spi,1
-   e.state="idle"
-   e.anim_t,e.hp=0,3
-   e.atk_cd,e.fired=0,false
-   e.inv_t,e.move_acc=0,0
-   e.patrol_t,e.walk_count=60,0
-   e.ia,e.wa,e.ws=a_spi,a_spw,0.5
-   e.sa,e.scd,e.spt=a_spa,180,60
-   e.fx,e.fy,e.fs=8,8,2
-   e.dr,e.dyr,e.dyo=80,48,0
-   e.da,e.ha=a_spd,a_sph
-   e.hx0,e.hy0,e.hx1,e.hy1=0,0,16,16
-  elseif t==7 then init_bot(e,a_wbi,4)
-   e.ia,e.wa,e.ws=a_wbi,a_wbm,0.6
-   e.sa,e.scd,e.spt=a_wbs,120,60
-   e.fx,e.fy,e.fs=0,-12,2.5
-   e.dr,e.dyr,e.dyo=80,32,11
-   e.da,e.ha=a_wbdt,a_wbd
-   e.wka=a_wbwk
-   e.hx0,e.hy0,e.hx1,e.hy1=-14,-24,14,0
-  elseif t==8 then init_bot(e,a_hbi,5)
-   e.ia,e.wa=a_hbi,a_hbr
-   e.sa,e.dr,e.dyr=a_hbs,90,32
-   e.da,e.ha=a_hbd,a_hbh
-   e.aa,e.ca=a_hba,a_hbr
-  elseif t==9 then init_bot(e,a_bki,10)
-   e.ia,e.wa=a_bki,a_bkr
-   e.sa,e.dr,e.dyr=a_bka,100,40
-   e.da,e.ha=a_bkd,a_bkh
-   e.aa,e.ca=a_bka,a_bkc
-  end
-  if t>=8 then
-   e.ws,e.scd,e.spt=0.8,90,30
-   e.fx,e.fy,e.fs=0,-14,2
-   e.dyo=11
-   e.hx0,e.hy0,e.hx1,e.hy1=-15,-28,15,0
   end
  end
 end
@@ -916,7 +874,7 @@ function update_enemy(e)
   end
  elseif s=="sleep" then
   local ddx,ddy=px-e.x,(py+11)-e.y
-  if abs(ddx)<(e.type==7 and 64 or 72) and abs(ddy)<48 then
+  if abs(ddx)<e.wr and abs(ddy)<48 then
    if e.wka then sp_set_anim(e,e.wka,"wake")
    else sp_set_anim(e,e.ia,"idle") end
   end

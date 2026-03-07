@@ -631,6 +631,35 @@ fn main() {
     gen_lines.push(format!("a_box={}", box_base_idx));
     gen_lines.push(format!("box_base={} box_s={}", layout.placements["box"], BOX_S));
 
+    // Entity init config tables
+    // Key order: anim,frame,xo,yo,hp,hx0,hy0,hx1,hy1,ia,wa,ws,sa,scd,spt,fx,fy,fs,dr,dyr,dyo,da,ha,aa,ca,wr
+    let a_door_idx = ANIMS.len() + 1;
+    let a_sid_idx = ANIMS.len() + 3;
+    gen_lines.push(format!("et1=split\"{},15,0,0,0\"", a_door_idx));
+    gen_lines.push(format!("et2=split\"{},1,8,8,0\"", a_sid_idx));
+    gen_lines.push(format!("et3=split\"{},1,8,16,0\"", ptl_base_idx));
+    gen_lines.push(format!("et4=split\"{},1,0,0,1,-8,-8,24,24\"", torch_base_idx));
+    // Spider (type 6): ia,wa,ws=spi,spw,0.5 sa,scd,spt=spa,180,60 fx,fy,fs=8,8,2 dr,dyr,dyo=80,48,0 da,ha=spd,sph
+    gen_lines.push(format!(
+        "et6=split\"{spi},1,0,0,3,0,0,16,16,{spi},{spw},0.5,{spa},180,60,8,8,2,80,48,0,{spd},{sph},0,0,72\"",
+        spi=sp_base_idx, spw=sp_base_idx+1, spa=sp_base_idx+2, sph=sp_base_idx+3, spd=sp_base_idx+4
+    ));
+    // Wheelbot (type 7): ia,wa,ws=wbi,wbm,0.6 sa,scd,spt=wbs,120,60 fx,fy,fs=0,-12,2.5 dr,dyr,dyo=80,32,11 da,ha=wbdt,wbd
+    gen_lines.push(format!(
+        "et7=split\"{wbi},1,8,16,4,-14,-24,14,0,{wbi},{wbm},0.6,{wbs},120,60,0,-12,2.5,80,32,11,{wbdt},{wbd},0,0,64\"",
+        wbi=wb_base_idx, wbm=wb_base_idx+1, wbs=wb_base_idx+3, wbd=wb_base_idx+6, wbdt=wb_base_idx+7
+    ));
+    // Hellbot (type 8): pre-merged with t>=8 fallback (ws=0.8,scd=90,spt=30,fx=0,fy=-14,fs=2,dyo=11,hbox=-15,-28,15,0)
+    gen_lines.push(format!(
+        "et8=split\"{hbi},1,8,16,5,-15,-28,15,0,{hbi},{hbr},0.8,{hbs},90,30,0,-14,2,90,32,11,{hbd},{hbh},{hba},{hbr},72\"",
+        hbi=hb_base_idx, hbr=hb_base_idx+1, hba=hb_base_idx+2, hbs=hb_base_idx+3, hbh=hb_base_idx+4, hbd=hb_base_idx+5
+    ));
+    // Boss (type 9): pre-merged with t>=8 fallback
+    gen_lines.push(format!(
+        "et9=split\"{bki},1,8,16,10,-15,-28,15,0,{bki},{bkr},0.8,{bka},90,30,0,-14,2,100,40,11,{bkd},{bkh},{bka},{bkc},72\"",
+        bki=bk_base_idx, bkr=bk_base_idx+1, bka=bk_base_idx+2, bkc=bk_base_idx+3, bkh=bk_base_idx+4, bkd=bk_base_idx+5
+    ));
+
     // Animation speed table
     let aspd = config::aspd_table(
         ANIMS.len(), ent_anims.len(),
