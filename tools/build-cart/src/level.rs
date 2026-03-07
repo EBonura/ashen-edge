@@ -37,6 +37,8 @@ struct LevelJson {
     #[serde(rename = "mapBgColor")]
     map_bg_color: Option<u8>,
     texts: Option<Vec<String>>,
+    #[serde(rename = "introTexts")]
+    intro_texts: Option<Vec<String>>,
     #[serde(rename = "tileEdits")]
     tile_edits: Option<HashMap<String, TileEditJson>>,
     #[serde(rename = "bgTileEdits")]
@@ -86,6 +88,7 @@ pub struct MapData {
     pub entities: Vec<EntityJson>,
     pub map_bg_color: u8,
     pub zone_texts: Vec<String>,
+    pub intro_texts: Vec<String>,
     pub tile_edits: HashMap<String, Vec<(u8, u8)>>,  // name -> [(lum, alpha)]
 }
 
@@ -149,6 +152,7 @@ pub fn read_level_json(json_path: &Path) -> Option<MapData> {
     let entities = data.entities.unwrap_or_default();
     let map_bg_color = data.map_bg_color.unwrap_or(1);
     let zone_texts = data.texts.unwrap_or_default();
+    let intro_texts = data.intro_texts.unwrap_or_default();
 
     // Merge tile edits from both FG and BG
     let mut tile_edits: HashMap<String, Vec<(u8, u8)>> = HashMap::new();
@@ -175,6 +179,7 @@ pub fn read_level_json(json_path: &Path) -> Option<MapData> {
         entities,
         map_bg_color,
         zone_texts,
+        intro_texts,
         tile_edits,
     })
 }

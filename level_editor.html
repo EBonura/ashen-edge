@@ -1590,7 +1590,7 @@ wrap.addEventListener("mousemove", e => {
   if (isDrawing && currentTool === "rect") render();
 });
 wrap.addEventListener("mouseup", e => {
-  if (isPanning) { isPanning=false;wrap.style.cursor="crosshair";return; }
+  if (isPanning) { isPanning=false;isDrawing=false;wrap.style.cursor="crosshair";return; }
   if (isResizingEntity !== null) {
     isResizingEntity=null; dragObjStart=null; return;
   }
@@ -1623,7 +1623,7 @@ document.getElementById("zoom-in").addEventListener("click",()=>setZoom(zoom+0.5
 document.getElementById("zoom-slider").addEventListener("input",e=>setZoom(e.target.value/10));
 wrap.addEventListener("wheel", e => { e.preventDefault(); }, {passive:false});
 wrap.addEventListener("contextmenu", e => { e.preventDefault(); isDrawing=false; render(); });
-wrap.addEventListener("mouseleave", () => { isDrawing=false; });
+wrap.addEventListener("mouseleave", () => { isDrawing=false; if(isPanning){isPanning=false;wrap.style.cursor="crosshair";} });
 
 // Keyboard
 document.addEventListener("keydown", e => {

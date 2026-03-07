@@ -501,18 +501,16 @@ fn main() {
 
             for src_slot in 0..64 {
                 let slot_data = &music_sfx[src_slot * 68..(src_slot + 1) * 68];
-                // Check if note data (first 64 bytes) has any content;
-                // skip slots with only editor header bytes (speed/loop) but no notes
                 let has_notes = slot_data[..64].iter().any(|&b| b != 0);
-                if has_notes {
-                    let dst_slot = src_slot + shift;
-                    if dst_slot >= 64 {
-                        eprintln!("  ERROR: audio SFX {} remapped to {} (out of range)!", src_slot, dst_slot);
-                        continue;
-                    }
-                    sfx_buf[dst_slot * 68..(dst_slot + 1) * 68].copy_from_slice(slot_data);
-                    audio_slots += 1;
+                if !has_notes { continue; }
+
+                let dst_slot = src_slot + shift;
+                if dst_slot >= 64 {
+                    eprintln!("  ERROR: audio SFX {} remapped to {} (out of range)!", src_slot, dst_slot);
+                    continue;
                 }
+                sfx_buf[dst_slot * 68..(dst_slot + 1) * 68].copy_from_slice(slot_data);
+                audio_slots += 1;
             }
 
             music_buf = music_pat.clone();
@@ -719,26 +717,26 @@ fn main() {
         }
     }
 
-    // Zone texts
+    // Zone texts + intro texts
     if let Some(map_data) = level::read_level_json(&level_json) {
-        if !map_data.zone_texts.is_empty() {
-            let glyph_sub = |t: &str| -> String {
-                let mut s = t.replace('\u{fe0f}', "");
-                let glyphs: &[(char, u8)] = &[
-                    ('\u{2b05}', 139), ('\u{2b06}', 148), ('\u{27a1}', 145), ('\u{2b07}', 131),
-                    ('\u{1f17e}', 142), ('\u{274e}', 151),
-                    ('\u{2039}', 139), ('\u{201c}', 148), ('\u{2018}', 145), ('\u{201d}', 148),
-                    ('\u{0192}', 131), ('\u{017d}', 142), ('\u{2014}', 151),
-                ];
-                for &(uc, p8) in glyphs {
-                    s = s.replace(uc, &String::from(char::from(p8)));
-                }
-                s
-            };
-            let zone_texts: Vec<String> = map_data.zone_texts.iter().map(|t| glyph_sub(t)).collect();
-            let escaped: Vec<String> = zone_texts.iter().map(|t| {
+        let glyph_sub = |t: &str| -> String {
+            let mut s = t.replace('\u{fe0f}', "");
+            let glyphs: &[(char, u8)] = &[
+                ('\u{2b05}', 139), ('\u{2b06}', 148), ('\u{27a1}', 145), ('\u{2b07}', 131),
+                ('\u{1f17e}', 142), ('\u{274e}', 151),
+                ('\u{2039}', 139), ('\u{201c}', 148), ('\u{2018}', 145), ('\u{201d}', 148),
+                ('\u{0192}', 131), ('\u{017d}', 142), ('\u{2014}', 151),
+            ];
+            for &(uc, p8) in glyphs {
+                s = s.replace(uc, &String::from(char::from(p8)));
+            }
+            s
+        };
+        let escape_texts = |texts: &[String]| -> String {
+            let escaped: Vec<String> = texts.iter().map(|t| {
+                let gs = glyph_sub(t);
                 let mut out = String::new();
-                for c in t.chars() {
+                for c in gs.chars() {
                     let o = c as u32;
                     if o >= 128 {
                         out.push_str(&format!("\\{:03}", o));
@@ -754,14 +752,23 @@ fn main() {
                 }
                 out
             }).collect();
-            let txt_entries: String = escaped.iter().map(|t| format!("\"{}\"", t)).collect::<Vec<_>>().join(",");
-            gen_lines.push(format!("_zt={{{}}}", txt_entries));
-            eprintln!("\n  Zone texts: {} entries", zone_texts.len());
+            escaped.iter().map(|t| format!("\"{}\"", t)).collect::<Vec<_>>().join(",")
+        };
+        if !map_data.zone_texts.is_empty() {
+            gen_lines.push(format!("_zt={{{}}}", escape_texts(&map_data.zone_texts)));
+            eprintln!("\n  Zone texts: {} entries", map_data.zone_texts.len());
         } else {
             gen_lines.push("_zt={}".into());
         }
+        if !map_data.intro_texts.is_empty() {
+            gen_lines.push(format!("_it={{{}}}", escape_texts(&map_data.intro_texts)));
+            eprintln!("  Intro texts: {} entries", map_data.intro_texts.len());
+        } else {
+            gen_lines.push("_it={}".into());
+        }
     } else {
         gen_lines.push("_zt={}".into());
+        gen_lines.push("_it={}".into());
     }
 
     // ── Combine and write ──
