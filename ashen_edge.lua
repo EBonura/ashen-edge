@@ -1212,12 +1212,9 @@ function _update60()
  local lr=plr_inv>30 and 0 or btn(1) and 1 or btn(0) and -1 or 0
 
  -- -- input buffering --
- if btnp(2) then buf_jump=8 end
- if btnp(4) then buf_atk=8 end
- if btnp(5) then buf_sweep=8 end
- buf_jump=max(0,buf_jump-1)
- buf_atk=max(0,buf_atk-1)
- buf_sweep=max(0,buf_sweep-1)
+ buf_jump=btnp(2) and 8 or max(0,buf_jump-1)
+ buf_atk=btnp(4) and 8 or max(0,buf_atk-1)
+ buf_sweep=btnp(5) and 8 or max(0,buf_sweep-1)
 
  -- -- death --
  if state=="death" then
