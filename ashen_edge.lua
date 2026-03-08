@@ -1350,7 +1350,7 @@ function _update60()
  update_ents()
  update_sprojs()
  update_parts()
- if rnd()<.15 then local q=mkp(rnd(128)+cam_x,rnd(128)+cam_y,.5,flr(rnd(2))) q.cl=rnd()<.5 and 2 or 8 q.vy=-rnd(.5)-.2 end
+ if rnd()<.15+py/2048*.45 then local q=mkp(rnd(128)+cam_x,rnd(128)+cam_y,.5,flr(rnd(2))) q.cl=rnd()<.5 and 2 or 8 q.vy=-rnd(.5)-.2 end
 
  if torches>=7 and btnp(3) then gs=5 end
  -- update camera
