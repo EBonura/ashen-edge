@@ -49,7 +49,9 @@ fn main() {
     let sw_start_png = dir.join("assets").join("save").join("start up16x19.png");
     let sw_idle_png = dir.join("assets").join("save").join("idle 16x19.png");
     let sw_down_png = dir.join("assets").join("save").join("down 16x19.png");
-    let title_png = dir.join("assets").join("title").join("title.png");
+    let title_bg2_png = dir.join("assets").join("title").join("bg2.png");
+    let title_bg1_png = dir.join("assets").join("title").join("bg1.png");
+    let title_fg_png = dir.join("assets").join("title").join("fg.png");
     let font_png = dir.join("assets").join("fonts").join("font_sheet.png");
     let spider_dir = dir.join("assets").join("spider");
     let wheelbot_dir = dir.join("assets").join("wheelbot");
@@ -97,8 +99,10 @@ fn main() {
     let sw_down_frames = extract_horiz_frames(&sw_down_png, 16, 19, 16, 19, None, 0);
     eprintln!("    sw_down: {} frames", sw_down_frames.len());
 
-    let title_frames = extract_horiz_frames(&title_png, 128, 128, 128, 128, Some(1), 0);
-    eprintln!("    title: 1 frame");
+    let title_bg2_frames = extract_horiz_frames(&title_bg2_png, 128, 128, 128, 128, Some(1), 0);
+    let title_bg1_frames = extract_horiz_frames(&title_bg1_png, 128, 128, 128, 128, Some(1), 0);
+    let title_fg_frames = extract_horiz_frames(&title_fg_png, 128, 128, 128, 128, Some(1), 0);
+    eprintln!("    title: 3 layers (BG2, BG1, FG)");
 
     eprintln!("\nExtracting font frames...");
     let (font_frames, font_cw, font_ch, font_adv) =
@@ -119,23 +123,26 @@ fn main() {
         eprintln!("{}", info);
     }
 
-    eprintln!("\nEncoding title and font...");
-    let (title_block, title_info) = animation::encode_animation("title", &title_frames, 128, 128, None, None);
-    eprintln!("{}", title_info);
+    eprintln!("\nEncoding title layers and font...");
+    let mut title_chunks: Vec<(String, Vec<u8>)> = Vec::new();
+    for (name, frames) in [("tbg2", &title_bg2_frames), ("tbg1", &title_bg1_frames), ("tfg", &title_fg_frames)] {
+        let (block, info) = animation::encode_animation(name, frames, 128, 128, None, None);
+        eprintln!("{}", info);
+        total_frames += frames.len();
+        let mut c = vec![1u8, 0, 0, 0, 0];
+        c.extend_from_slice(&block);
+        title_chunks.push((name.to_string(), c));
+    }
     let (font_block, font_info) = animation::encode_animation("font", &font_frames, font_cw, font_ch, None, None);
     eprintln!("{}", font_info);
-    total_frames += title_frames.len() + font_frames.len();
-    let title_chunk = {
-        let mut c = vec![1u8, 0, 0, 0, 0];
-        c.extend_from_slice(&title_block);
-        c
-    };
+    total_frames += font_frames.len();
     let font_chunk = {
         let mut c = vec![1u8, 0, 0, 0, 0];
         c.extend_from_slice(&font_block);
         c
     };
-    eprintln!("  title_chunk: {}b  font_chunk: {}b", title_chunk.len(), font_chunk.len());
+    let title_total: usize = title_chunks.iter().map(|(_, c)| c.len()).sum();
+    eprintln!("  title_chunks: {}b total  font_chunk: {}b", title_total, font_chunk.len());
 
     // ── Spider enemy ──
     eprintln!("\nExtracting spider frames...");
@@ -479,7 +486,9 @@ fn main() {
         cart::DataChunk { name: "hp".into(), data: hp_chunk },
         cart::DataChunk { name: "tbar".into(), data: tbar_chunk },
         cart::DataChunk { name: "level".into(), data: map_level_data },
-        cart::DataChunk { name: "title".into(), data: title_chunk },
+        cart::DataChunk { name: "tbg2".into(), data: title_chunks[0].1.clone() },
+        cart::DataChunk { name: "tbg1".into(), data: title_chunks[1].1.clone() },
+        cart::DataChunk { name: "tfg".into(), data: title_chunks[2].1.clone() },
         cart::DataChunk { name: "font".into(), data: font_chunk },
     ];
 
@@ -568,15 +577,17 @@ fn main() {
     gen_lines.push(format!("{}=unpack(split\"{}\")", ent_lhs, ent_rhs));
 
     let num_main = ANIMS.len() + ent_anims.len();
-    gen_lines.push(format!("a_title={} a_font={}", num_main + 1, num_main + 2));
-    gen_lines.push(format!("title_base={} font_base={}", layout.placements["title"], layout.placements["font"]));
+    gen_lines.push(format!("a_tbg2,a_tbg1,a_tfg={},{},{}", num_main + 1, num_main + 2, num_main + 3));
+    gen_lines.push(format!("a_font={}", num_main + 4));
+    gen_lines.push(format!("font_base={}", layout.placements["font"]));
+    gen_lines.push(format!("tbg2_base,tbg1_base,tfg_base={},{},{}", layout.placements["tbg2"], layout.placements["tbg1"], layout.placements["tfg"]));
     gen_lines.push(format!("font_cw={} font_ch={}", font_cw, font_ch));
     let adv_str: String = font_adv.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(",");
     gen_lines.push(format!("font_adv=split\"{}\"", adv_str));
 
     // Spider
     let sp_vars = ["a_spi","a_spw","a_spa","a_sph","a_spd"];
-    let sp_base_idx = num_main + 3;
+    let sp_base_idx = num_main + 5; // 3 title layers + 1 font
     let sp_lhs = sp_vars.join(",");
     let sp_rhs: String = (0..spider_anims.len()).map(|i| (sp_base_idx + i).to_string()).collect::<Vec<_>>().join(",");
     gen_lines.push(format!("{}=unpack(split\"{}\")", sp_lhs, sp_rhs));

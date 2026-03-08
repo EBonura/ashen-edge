@@ -213,7 +213,9 @@ end
 
 function cache_anims()
  la(char_base,1,cell_w,cell_h)
- la(title_base,a_title,128,128)
+ la(tbg2_base,a_tbg2,128,128)
+ la(tbg1_base,a_tbg1,128,128)
+ la(tfg_base,a_tfg,128,128)
  la(font_base,a_font,font_cw,font_ch)
  la(spider_base,a_spi,spider_cw,spider_ch)
  la(wheelbot_base,a_wbi,wheelbot_cw,wheelbot_ch)
@@ -1140,7 +1142,7 @@ function _update60()
    if fade_v>=8 then
     fade_v=8
     if gs==6 then reset_game() end gs=ngs
-    fade_d=-1
+    if ngs==1 then fade_v,fade_d=0,0 tt=0 else fade_d=-1 end
    elseif fade_v<=0 then
     fade_v,fade_d=0,0
    end
@@ -1154,6 +1156,7 @@ function _update60()
   return
  end
  if gs~=4 then
+  tt+=1
   if fade_d==0 and (btnp(4) or btnp(5)) then sfx(sfx_confirm) ngs=min(gs+1,4) fade_d=1 end
   return
  end
@@ -1384,22 +1387,21 @@ function _draw()
    text_box(_zt[zt],64,108,7)
   end
  else
-  cls(0)
+  cls(gs==1 and 1 or 0)
   if gs==0 then
    local w=p8print("bonnie games",0,0)
    p8print("bonnie games",64-w\2,56,8)
    w=p8print("presents",0,0)
    p8print("presents",64-w\2,72,7)
   elseif gs==1 then
-   draw_char(a_title,1,0,0)
-   text_box("Aletha",36,20,8)
+   draw_char(a_tbg2,1,0,min(0,-64+tt*0.5))
+   draw_char(a_tbg1,1,0,0)
+   draw_char(a_tfg,1,0,max(0,64-tt*0.5))
+   if tt>128 then text_box("Aletha",36,20,8) end
   elseif gs==6 then
    text_box("you died",64,46,8)
   else
    text_box(_it[gs-1],64,64,7)
-  end
-  if fade_d==0 and gs>1 then
-   text_box("press x",64,100,t()%1<.5 and 6 or 0)
   end
  end
  if fade_v>0 then
