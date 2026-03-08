@@ -1150,24 +1150,24 @@ function _update60()
    fade_v+=fade_d
    if fade_v>=8 then
     fade_v=8
-    if gs==6 then reset_game() end gs=ngs
+    if gs==7 then reset_game() end gs=ngs
     if ngs==1 then fade_v,fade_d=0,0 tt=0 else fade_d=-1 end
    elseif fade_v<=0 then
     fade_v,fade_d=0,0
    end
   end
  end
- if gs==5 then
-  if upg then tt-=1 if tt<1 then gs=4 upg=nil end
+ if gs==6 then
+  if upg then tt-=1 if tt<1 then gs=5 upg=nil end
   elseif btnp(4) then plr_atk+=1 torches-=7 tt=120 upg="attack +1"
   elseif btnp(5) then max_hp+=1 plr_hp+=1 torches-=7 tt=120 upg="health +1"
   end
   return
  end
- if gs~=4 then
+ if gs~=5 then
   tt+=1
   update_parts()
-  if fade_d==0 and (btnp(4) or btnp(5)) then sfx(sfx_confirm) ngs=min(gs+1,4) fade_d=1 end
+  if fade_d==0 and (btnp(4) or btnp(5)) then sfx(sfx_confirm) ngs=min(gs+1,5) fade_d=1 end
   return
  end
  if plr_inv>0 then plr_inv-=1 end
@@ -1182,7 +1182,7 @@ function _update60()
  if state=="death" then
   tick_anim()
   death_t+=1
-  if death_t>90 then ngs=6 fade_d=1 end
+  if death_t>90 then ngs=7 fade_d=1 end
   update_ents()
   update_sprojs()
   update_parts()
@@ -1351,7 +1351,7 @@ function _update60()
  update_sprojs()
  update_parts()
 
- if torches>=7 and btnp(3) then gs=5 end
+ if torches>=7 and btnp(3) then gs=6 end
  -- update camera
  update_camera()
 
@@ -1361,7 +1361,7 @@ end
 
 
 function _draw()
- if gs==4 or gs==5 then
+ if gs==5 or gs==6 then
   cls(lvl_bg)
   draw_layer(1)
   draw_parts()
@@ -1384,7 +1384,7 @@ function _draw()
    local c=near_ent.cost
    text_box(c>0 and "\131 "..c or "\131",near_ent.x-cam_x,near_ent.y-20-cam_y,gems>=c and 7 or 8)
   end
-  if gs==5 then
+  if gs==6 then
    text_box(upg or "what will the\nflames grant?\n\151 attack\n\142 health",64,64,7)
   elseif torches>=7 then
    text_box("\131 embrace the flames",64,108,t()%1<.5 and 6 or 0)
@@ -1406,7 +1406,7 @@ function _draw()
    draw_char(a_tbg1,1,0,0)
    draw_char(a_tfg,1,0,max(0,64-tt*0.5))
    if tt>128 then text_box("Aletha",36,20,8) end
-  elseif gs==6 then
+  elseif gs==7 then
    text_box("you died",64,46,8)
   else
    text_box(_it[gs-1],64,64,7)
