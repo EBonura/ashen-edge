@@ -614,7 +614,7 @@ function draw_parts()
  for p in all(parts) do
   local qx,qy=p.x-cam_x,p.y-cam_y
   if p.c then dspr(p.c,qx,qy)
-  elseif p.cl then if p.sz then circfill(qx,qy,p.sz,p.cl) else pset(qx,qy,p.cl) end
+  elseif p.cl then circfill(qx,qy,p.sz or 0,p.cl)
   else circfill(qx,qy,2,8) circfill(qx-1,qy-1,1,14) end
  end
 end
@@ -622,6 +622,7 @@ function pemit(x,y,cl,r,d,s)
  add(parts,{em=true,x=x,y=y,cl=cl,r=r,d=d,s=s or 1})
 end
 function update_parts()
+ if rnd()<.15+py/2048*.45 then local q=mkp(rnd(128)+cam_x,rnd(128)+cam_y,.5,flr(rnd(2))) q.cl=rnd()<.5 and 2 or 8 q.vy=-rnd(.5)-.2 end
  for p in all(parts) do
   if p.em then
    for i=1,p.r do local q=mkp(p.x,p.y,p.s) q.cl=p.cl end
@@ -1166,7 +1167,6 @@ function _update60()
  if gs~=4 then
   tt+=1
   update_parts()
-  if rnd()<.15 then local q=mkp(rnd(128),rnd(128),.5,flr(rnd(2))) q.cl=rnd()<.5 and 2 or 8 q.vy=-rnd(.5)-.2 end
   if fade_d==0 and (btnp(4) or btnp(5)) then sfx(sfx_confirm) ngs=min(gs+1,4) fade_d=1 end
   return
  end
@@ -1350,7 +1350,6 @@ function _update60()
  update_ents()
  update_sprojs()
  update_parts()
- if rnd()<.15+py/2048*.45 then local q=mkp(rnd(128)+cam_x,rnd(128)+cam_y,.5,flr(rnd(2))) q.cl=rnd()<.5 and 2 or 8 q.vy=-rnd(.5)-.2 end
 
  if torches>=7 and btnp(3) then gs=5 end
  -- update camera

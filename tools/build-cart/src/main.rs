@@ -684,7 +684,7 @@ fn main() {
     let tbar_base_idx = box_base_idx + 1;
     gen_lines.push(format!("a_tbar={}", tbar_base_idx));
     gen_lines.push(format!("tbar_base={} tbar_cw={} tbar_ch={}", layout.placements["tbar"], TBAR_W, TBAR_H));
-    gen_lines.push(format!("sfx_confirm={}", 6 + sfx_shift));
+    gen_lines.push(format!("sfx_confirm={}", 7 + sfx_shift));
 
     // Font lookup
     let fc_escaped: String = FONT_CHARS.chars().map(|c| {
