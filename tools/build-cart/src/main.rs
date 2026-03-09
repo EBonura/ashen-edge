@@ -578,10 +578,11 @@ fn main() {
     // Entity anim indices
     let ent_vars = ["a_door","a_sst","a_sid","a_sdn"];
     let ent_lhs = ent_vars.join(",");
-    let ent_rhs: String = (0..ent_anims.len()).map(|i| (ANIMS.len() + i + 1).to_string()).collect::<Vec<_>>().join(",");
+    // +1 for the door (encoded separately but still in anim_blocks)
+    let ent_rhs: String = (0..ent_vars.len()).map(|i| (ANIMS.len() + i + 1).to_string()).collect::<Vec<_>>().join(",");
     gen_lines.push(format!("{}=unpack(split\"{}\")", ent_lhs, ent_rhs));
 
-    let num_main = ANIMS.len() + ent_anims.len();
+    let num_main = ANIMS.len() + 1 + ent_anims.len(); // +1 for door (encoded separately)
     gen_lines.push(format!("a_tbg2,a_tbg1,a_tfg={},{},{}", num_main + 1, num_main + 2, num_main + 3));
     gen_lines.push(format!("a_font={}", num_main + 4));
     gen_lines.push(format!("font_base={}", layout.placements["font"]));

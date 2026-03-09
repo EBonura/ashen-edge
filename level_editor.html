@@ -114,6 +114,16 @@ textarea { border-radius: 4px; }
 #export-info { margin-bottom: 8px; font-size: 12px; color: var(--text-label); }
 #export-close { background: var(--border) !important; margin-left: 8px; }
 
+/* Texts modal */
+#texts-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.8); z-index: 100; justify-content: center; align-items: center; }
+#texts-modal.show { display: flex; }
+#texts-content { background: var(--bg-header); padding: 20px; border-radius: 8px; max-width: 500px; width: 90%; }
+#texts-content h3 { margin-bottom: 10px; }
+#texts-content label { display: block; color: var(--text-label); font-size: 11px; margin-top: 10px; margin-bottom: 2px; }
+#texts-content textarea { width: 100%; height: 60px; background: var(--bg-deep); color: var(--text); border: 1px solid var(--border); font-family: monospace; font-size: 11px; padding: 6px; resize: vertical; }
+#texts-content button { margin-top: 12px; padding: 6px 16px; background: var(--accent); color: var(--text); border: none; cursor: pointer; font-family: monospace; }
+#texts-close { background: var(--border) !important; margin-left: 8px; }
+
 /* Band editor */
 #band-editor { padding: 6px; background: var(--bg-panel); border-top: 1px solid var(--bg-btn); }
 #band-editor h3 { font-size: 11px; color: var(--text-label); margin-bottom: 4px; }
@@ -293,6 +303,7 @@ textarea { border-radius: 4px; }
     </div>
     <div class="tb-row">
       <button id="btn-export" data-tip="Export (⌘E)">Export</button>
+      <button id="btn-texts" data-tip="Edit intro texts">Texts</button>
     </div>
     <span id="st-cart"></span>
   </div>
@@ -342,6 +353,20 @@ textarea { border-radius: 4px; }
     <textarea id="export-hex" readonly></textarea>
     <button id="export-copy">Copy to Clipboard</button>
     <button id="export-close">Close</button>
+  </div>
+</div>
+
+<div id="texts-modal">
+  <div id="texts-content">
+    <h3>Intro Texts</h3>
+    <label>Screen 1</label>
+    <textarea id="intro-text-1"></textarea>
+    <label>Screen 2</label>
+    <textarea id="intro-text-2"></textarea>
+    <label>Screen 3</label>
+    <textarea id="intro-text-3"></textarea>
+    <button id="texts-save">Save</button>
+    <button id="texts-close">Close</button>
   </div>
 </div>
 
@@ -452,6 +477,7 @@ const ENT_TYPES = [
   { id: 9, name: "Boss",     w: 3, h: 2, color: "#ff0000", hasGroup: false }
 ];
 let entities = [];
+let introTexts = ["", "", ""];
 let selectedEntity = null;
 let entityPlaceType = 1;
 
@@ -1845,6 +1871,17 @@ function exportMap() {
 document.getElementById("export-copy").addEventListener("click",()=>{navigator.clipboard.writeText(document.getElementById("export-hex").value);document.getElementById("export-copy").textContent="Copied!";setTimeout(()=>document.getElementById("export-copy").textContent="Copy to Clipboard",1500);});
 document.getElementById("export-close").addEventListener("click",()=>document.getElementById("export-modal").classList.remove("show"));
 
+// Texts modal
+document.getElementById("btn-texts").addEventListener("click", () => {
+  for (let i = 0; i < 3; i++) document.getElementById("intro-text-"+(i+1)).value = introTexts[i] || "";
+  document.getElementById("texts-modal").classList.add("show");
+});
+document.getElementById("texts-save").addEventListener("click", () => {
+  for (let i = 0; i < 3; i++) introTexts[i] = document.getElementById("intro-text-"+(i+1)).value;
+  document.getElementById("texts-modal").classList.remove("show");
+});
+document.getElementById("texts-close").addEventListener("click", () => document.getElementById("texts-modal").classList.remove("show"));
+
 // ── Level I/O (via local server, JSON) ──
 
 function getLevelData() {
@@ -1888,7 +1925,8 @@ function getLevelData() {
     mapBgColor: mapBgColor,
     parallax: Array.from(layerParallax),
     entities: entsCopy,
-    texts: texts
+    texts: texts,
+    introTexts: introTexts.filter(t => t.length > 0)
   };
 }
 
@@ -1959,6 +1997,7 @@ function applyLevelData(d) {
   }
   remapAllTiles(); refreshPaletteTiles(); buildBandEditor();
   if (d.parallax) { for (let i=0; i<NUM_LAYERS; i++) layerParallax[i] = d.parallax[i] ?? layerParallax[i]; }
+  if (d.introTexts) { introTexts = [d.introTexts[0]||"", d.introTexts[1]||"", d.introTexts[2]||""]; }
   const loadedTexts = d.texts || [];
   entities = (d.entities || []).map(e => {
     const ent = {type: e.type, x: e.x, y: e.y, group: e.group};

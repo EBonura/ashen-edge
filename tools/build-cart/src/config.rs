@@ -164,7 +164,7 @@ pub fn aspd_table(n_player: usize, n_ent: usize, n_spider: usize, n_wb: usize, n
     let mut aspd = vec![
         6, 5, 5, 5, 5, 2, 6, 6, 4, 6, // player: idle,run,jump,fall,hit,land,atk1,xslice,sweep,death
         6, 6, 6, 8, // entity: door,sw_start,sw_idle,sw_down
-        30, 0, // title, font
+        30, 30, 30, 0, // title (tbg2,tbg1,tfg), font
     ];
     aspd.extend_from_slice(&[8, 6, 5, 5, 6]); // spider: idle,walk,attack,hit,death
     aspd.extend_from_slice(&[8, 5, 6, 5, 4, 6, 5, 6]); // wheelbot
