@@ -156,7 +156,6 @@ function read_anim(a,cb)
 end
 
 acache={}
-sp_anc={}
 
 function decode_anim(ai)
  local frames={}
@@ -660,19 +659,16 @@ function init_ents()
    elseif t==4 then
     e.anim_t,e.inv_t=0,0
     if torch_got[e.ty*256+e.tx] then e.frame,e.hp=7,0 end
-   elseif t==6 then
-    e.surf,e.mdir=0,1
-    e.state,e.anim_t="idle",0
-    e.atk_cd,e.fired=0,false
-    e.inv_t,e.move_acc=0,0
-    e.patrol_t,e.walk_count=60,0
-   elseif t>=7 then
-    e.vx,e.vy,e.mdir=0,0,1
-    e.state,e.anim_t="sleep",0
-    e.inv_t,e.atk_cd=0,0
-    e.grounded,e.fired=false,false
-    e.patrol_t,e.walk_count=0,0
-    if t==7 then e.wka=a_wbwk end
+   elseif t>=6 then
+    e.mdir,e.anim_t,e.atk_cd,e.fired,e.inv_t,e.walk_count=1,0,0,false,0,0
+    if t==6 then
+     e.surf,e.move_acc,e.patrol_t=0,0,60
+     e.state="idle"
+    else
+     e.vx,e.vy,e.patrol_t,e.grounded=0,0,0,false
+     e.state="sleep"
+     if t==7 then e.wka=a_wbwk end
+    end
    end
   end
  end
@@ -1096,7 +1092,9 @@ end
 function draw_ents()
  for e in all(ents) do
   local t=e.type
-  if t~=5 and e.x-cam_x>-80 and e.x-cam_x<208 and e.y-cam_y>-80 and e.y-cam_y<208 then
+  if t~=5 then
+  local dx,dy=e.x-cam_x,e.y-cam_y
+  if dx>-80 and dx<208 and dy>-80 and dy<208 then
    if t==7 then
     draw_bot(e,wb_anc,wheelbot_cw,wheelbot_ch)
    elseif t==8 then
@@ -1104,19 +1102,17 @@ function draw_ents()
    elseif t==9 then
     draw_bot(e,bk_anc,boss_cw,boss_ch)
    elseif t==6 then
-    local sx,sy=e.x-cam_x,e.y-cam_y
-    local flip=e.mdir==-1
-    local rot=sp_rot[e.surf+1]
-    draw_char(e.anim,e.frame,sx,sy,flip,rot)
+    draw_char(e.anim,e.frame,dx,dy,e.mdir==-1,sp_rot[e.surf+1])
    elseif t==3 then
-    draw_char(e.anim,e.frame,e.x-portal_cw\2-cam_x,e.y-portal_ch-cam_y,nil,nil,e.active and ptl_rm)
+    draw_char(e.anim,e.frame,dx-portal_cw\2,dy-portal_ch,nil,nil,e.active and ptl_rm)
    elseif t==4 then
-    draw_char(e.anim,e.frame,e.x-cam_x,e.y-cam_y)
+    draw_char(e.anim,e.frame,dx,dy)
    else
     local sx,sy=e.tx*16-cam_x,e.ty*16-cam_y
     if t==1 then sx-=16 end
     draw_char(e.anim,e.frame,sx,sy)
    end
+  end
   end
  end
 end
@@ -1335,9 +1331,7 @@ function _draw()
   draw_ents()
   draw_sprojs()
   local acw=acache[cur_anim].cw
-  local ax=(sp_anc[cur_anim] and sp_anc[cur_anim][cur_frame])
-        or (anc[cur_anim] and anc[cur_anim][cur_frame])
-        or acw\2
+  local ax=anc[cur_anim] and anc[cur_anim][cur_frame] or acw\2
   local flip=facing==-1
   local dx=flip and px-(acw-1-ax) or px-ax
   if plr_inv==0 or plr_inv%4<2 then

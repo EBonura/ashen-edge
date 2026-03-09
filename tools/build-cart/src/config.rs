@@ -49,8 +49,8 @@ pub const PORTAL_W: u32 = 28;
 pub const PORTAL_H: u32 = 11; // PORTAL_SRC_H - 30
 pub const TORCH_W: u32 = 16;
 pub const TORCH_H: u32 = 16;
-pub const TBAR_W: u32 = 41;
-pub const TBAR_H: u32 = 12;
+pub const TBAR_W: u32 = 39;
+pub const TBAR_H: u32 = 8;
 
 pub const FONT_CHARS: &str = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!.,:-'?/()\u{97}\u{8e}\u{94}\u{83}\u{8b}\u{91}+";
 

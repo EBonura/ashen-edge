@@ -598,8 +598,6 @@ fn main() {
     let sp_rhs: String = (0..spider_anims.len()).map(|i| (sp_base_idx + i).to_string()).collect::<Vec<_>>().join(",");
     gen_lines.push(format!("{}=unpack(split\"{}\")", sp_lhs, sp_rhs));
     gen_lines.push(format!("spider_base={} spider_cw={} spider_ch={}", layout.placements["spider"], SPIDER_W, SPIDER_H));
-    gen_lines.push(format!("_sa=split(\"{}\",\"|\",false)", sp_anc_str));
-    gen_lines.push("sp_anc={} for i=1,#_sa do sp_anc[a_spi+i-1]=split(_sa[i]) end".into());
 
     // Wheel bot
     let wb_vars = ["a_wbi","a_wbm","a_wbc","a_wbs","a_wbfd","a_wbwk","a_wbd","a_wbdt"];
