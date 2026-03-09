@@ -704,16 +704,12 @@ function toggle_switch(e)
  -- trigger linked doors
  local grp=ent_grp[e.group]
  if grp then
-  for _,ei in ipairs(grp) do
-   local de=ents[ei]
-   if de.type==1 then
-    if e.state==1 then
-     de.state,de.frame=1,1
-    elseif e.state==3 then
-     de.state,de.frame=3,14
-    end
-   end
-  end
+  local op=true
+  for _,ei in ipairs(grp) do if ents[ei].type==2 and ents[ei].state%3==0 then op=false end end
+  for _,ei in ipairs(grp) do local d=ents[ei] if d.type==1 then
+   if op and d.state==0 then d.state,d.frame=1,1
+   elseif not op and d.state==2 then d.state,d.frame=3,14 end
+  end end
  end
 end
 
@@ -1191,7 +1187,6 @@ function _update60()
  local s=state
  if s=="idle" or s=="run" then
   if not grounded and air_time>4 then
-   printh("!mv "..s.."->fall at="..air_time)
    set_anim(a_fall) state="fall"
   elseif buf_jump>0 and not act then
    do_jump()
@@ -1230,13 +1225,12 @@ function _update60()
    combo_queued=true buf_atk=0
   end
   if lr~=0 and anim_done(10) and not combo_queued then
-   printh("!rc combo") end_attack() act=nil combo_idx=0
+   end_attack() act=nil combo_idx=0
    vx,facing=lr*1.5,lr set_anim(a_run,"run")
   elseif anim_done() then
    end_attack()
    if combo_queued and combo_idx<#combo_chain then
     combo_idx+=1 combo_queued=false
-    printh("!chain "..combo_idx)
     set_anim(combo_chain[combo_idx])
     sa(combo_chain[combo_idx])
    else
@@ -1246,7 +1240,7 @@ function _update60()
  elseif act=="sweep" then
   apply_atk_drift()
   if lr~=0 and anim_done(10) then
-   printh("!rc sweep") end_attack() act=nil
+   end_attack() act=nil
    vx,facing=lr*1.5,lr set_anim(a_run,"run")
   elseif anim_done() then
    end_attack()
