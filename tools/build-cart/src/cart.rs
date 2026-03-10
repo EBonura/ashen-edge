@@ -128,6 +128,16 @@ pub fn build_single_anim_chunk(block: &[u8], cell_w: u32, cell_h: u32) -> Vec<u8
     chunk
 }
 
+/// Extract the __label__ section from an existing .p8 cart (if present).
+pub fn extract_label(cart_path: &std::path::Path) -> Option<String> {
+    let content = std::fs::read_to_string(cart_path).ok()?;
+    let start = content.find("__label__")?;
+    // Find the next section marker or end of file
+    let rest = &content[start + "__label__".len()..];
+    let end = rest.find("\n__").map(|i| i + 1).unwrap_or(rest.len());
+    Some(format!("__label__{}", &rest[..end]))
+}
+
 /// Write the final .p8 cart.
 pub fn write_p8_cart(
     output_path: &std::path::Path,
@@ -137,6 +147,7 @@ pub fn write_p8_cart(
     gff_hex: &str,
     sfx_hex: &str,
     music_hex: Option<&str>,
+    label: Option<&str>,
 ) {
     let map_section = format!("\n__map__\n{}", map_hex);
     let gff_section = format!("\n__gff__\n{}", gff_hex);
@@ -144,10 +155,13 @@ pub fn write_p8_cart(
     let music_section = music_hex
         .map(|mh| format!("\n__music__\n{}", mh))
         .unwrap_or_default();
+    let label_section = label
+        .map(|l| format!("\n{}", l))
+        .unwrap_or_default();
 
     let p8 = format!(
-        "pico-8 cartridge // http://www.pico-8.com\nversion 42\n__lua__\n{}\n__gfx__\n{}{}{}{}{}\n",
-        lua_code, gfx_hex, map_section, gff_section, sfx_section, music_section
+        "pico-8 cartridge // http://www.pico-8.com\nversion 42\n__lua__\n{}\n__gfx__\n{}{}{}{}{}{}\n",
+        lua_code, gfx_hex, map_section, gff_section, sfx_section, music_section, label_section
     );
 
     std::fs::write(output_path, &p8)

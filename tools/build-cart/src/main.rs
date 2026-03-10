@@ -21,8 +21,9 @@ fn main() {
 
     // Determine project directory (one arg = project dir, or default to ../../)
     let args: Vec<String> = std::env::args().collect();
-    let dir = if args.len() > 1 {
-        PathBuf::from(&args[1])
+    let positional: Vec<&str> = args[1..].iter().map(|s| s.as_str()).filter(|s| !s.starts_with("--")).collect();
+    let dir = if !positional.is_empty() {
+        PathBuf::from(positional[0])
     } else {
         // Default: assume running from tools/build-cart/
         let exe_dir = std::env::current_exe()
@@ -825,6 +826,9 @@ fn main() {
         None
     };
 
+    // Preserve label from existing cart (if any)
+    let label = cart::extract_label(&output_p8);
+
     cart::write_p8_cart(
         &output_p8,
         &lua_code,
@@ -833,8 +837,41 @@ fn main() {
         &gff_hex,
         &sfx_hex,
         music_hex_str.as_deref(),
+        label.as_deref(),
     );
 
     let elapsed = t0.elapsed();
     eprintln!("\nBuild completed in {:.2}s", elapsed.as_secs_f64());
+
+    // HTML export via PICO-8 (if --export flag or PICO8_EXPORT env is set)
+    let do_export = args.iter().any(|a| a == "--export") || std::env::var("PICO8_EXPORT").is_ok();
+    if do_export {
+        let pico8 = std::env::var("PICO8_BIN")
+            .unwrap_or_else(|_| "/Users/ebonura/Desktop/pico-8/PICO-8.app/Contents/MacOS/pico8".into());
+        let export_dir = dir.join("export");
+        std::fs::create_dir_all(&export_dir).ok();
+
+        // Write a tiny builder cart that loads the game cart and exports HTML.
+        // Each line in __lua__ is executed as a PICO-8 console command when run with -x.
+        // PICO-8 resolves paths relative to its carts dir, so we use cd + relative paths.
+        let builder_p8 = dir.join("_export_helper.p8");
+        std::fs::write(&builder_p8, concat!(
+            "pico-8 cartridge // http://www.pico-8.com\nversion 42\n__lua__\n",
+            "cd ashen-edge\n",
+            "load(\"ashen_edge.p8\")\n",
+            "export(\"export/ashen_edge.html\")\n",
+        )).expect("Failed to write export helper cart");
+
+        eprint!("Exporting HTML...");
+        let status = std::process::Command::new(&pico8)
+            .args(["-x", &builder_p8.to_string_lossy().to_string()])
+            .status();
+        // Clean up helper cart
+        std::fs::remove_file(&builder_p8).ok();
+        match status {
+            Ok(s) if s.success() => eprintln!(" done → {}/", export_dir.display()),
+            Ok(s) => eprintln!(" PICO-8 exited with {}", s),
+            Err(e) => eprintln!(" failed to run PICO-8: {}", e),
+        }
+    }
 }
