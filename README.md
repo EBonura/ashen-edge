@@ -63,6 +63,24 @@ Lua strings             --poke()-->  user RAM     --> same decoder --> acache[]
 
 Animation frames become flat pixel strings drawn with `pset()` per pixel. Tiles are decoded to sprite sheet memory and drawn with `spr()` / `memcpy`. After decoding, the ROM is never read again -the game runs entirely from Lua tables.
 
+### Token-Saving Tricks
+
+At 98% token usage, every token counts. Some techniques used to stay under the 8,192 limit:
+
+**Free tokens in PICO-8's grammar.** PICO-8 doesn't count `,`, `.`, `:`, `;`, `::`, `)`, `]`, `}`, `end`, or `local` as tokens. Multi-assignment like `e.vx,e.vy,e.mdir=0,0,1` costs fewer tokens than three separate assignments because `,` and `.` are free. The code exploits this heavily, packing as many assignments into single statements as possible.
+
+**Code generation.** The Rust build tool emits a `--##generated##` block containing all animation indices (`a_idle=1 a_run=2 ...`), entity config tables (`et1=split"..." ... et9=split"..."`), animation speeds, anchor data, font mappings, and tile flags. This is ~80 lines of Lua that would otherwise need to be hand-maintained and would cost tokens for table constructors. The entity init tables (`et1`-`et9`) replace what would be a 60-line elseif chain with a 2-line loop: `for i=1,#v do e[ek[i]]=v[i] end`.
+
+**`split()` for data tables.** PICO-8's `split()` parses a comma-separated string into a table, costing only 3 tokens (split + string + call) regardless of how many values are inside. The game uses this extensively for lookup tables: spider surface-crawling directions, fade patterns, attack push values, parallax layers, and all entity config tables. A string like `"1,0,-1,0"` is 3 tokens; the equivalent `{1,0,-1,0}` is 5.
+
+**Short function names for hot paths.** Frequently-called helpers use minimal names: `af()` (advance frame), `tc()` (tick cooldowns), `ff()` (fire on frame 3), `tr()` (tile range), `sa()` (set anchor), `la()` (load anims), `pk2()` (peek 16-bit). Each shaved character doesn't save tokens directly, but shorter names help with the compressed-code budget.
+
+**Unified enemy AI.** All 4 enemy types (spider, wheelbot, hellbot, boss) share a single `update_enemy()` function with a common state machine (sleep/wake/idle/walk/charge/attack/shoot/hit/death). Per-type differences are driven by data in the entity config tables (walk speed, detection range, attack animations) rather than branching code. The `draw_bot()` function similarly handles all bipedal enemies with one draw call.
+
+**Dual-purpose tile encoding.** Tile cell values encode both the tile index and flip state in a single byte using 2 low bits for flip flags and the upper bits for tile ID. The `dspr()` function decodes this at draw time with bitwise ops: `spr(238,x,y,2,2,c&2>0,c&1>0)`. This avoids needing separate flip data per cell.
+
+**`ord()` for pixel reads.** Animation frames are pre-decoded into Lua strings (one byte per pixel via `chr(unpack(d))`). At draw time, `ord(buf,idx)` reads individual pixel values. This is faster and more token-efficient than indexing a table, since `ord()` is a single built-in call and strings use less memory than tables in PICO-8.
+
 ### Budget (current)
 
 | Resource   | Used    | Limit   | %    |
