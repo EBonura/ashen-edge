@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-Safe PICO-8 Lua minifier for Ashen Edge.
+Safe PICO-8 Lua minifier for Aletha.
 Applies only transformations that reduce TOKEN COUNT:
   1. print(...) → ?...        (saves 2-3 tokens per call)
   2. Unnecessary semicolons   (saves 1 token each)
 
 Does NOT do: variable renaming, block shorthand, assignment merging,
 whitespace/comment stripping (those save chars, not tokens).
-Reads ashen_edge.p8, writes ashen_edge_min.p8 (never overwrites source).
+Reads aletha.p8, writes aletha_min.p8 (never overwrites source).
 """
 
 import re, os, sys
 from count_tokens import tokenize, count_tokens
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-SRC  = os.path.join(DIR, "ashen_edge.p8")
-DEST = os.path.join(DIR, "ashen_edge_min.p8")
+SRC  = os.path.join(DIR, "aletha.p8")
+DEST = os.path.join(DIR, "aletha_min.p8")
 
 TOKEN_LIMIT = 8192
 

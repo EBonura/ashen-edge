@@ -19,4 +19,4 @@ jobs:
           curl -L -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
           unzip butler.zip
           chmod +x butler
-          ./butler push ./export bonnie-games/ashen-edge:html5
+          ./butler push ./export bonnie-games/aletha:html5

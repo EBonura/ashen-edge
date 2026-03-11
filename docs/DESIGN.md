@@ -1,4 +1,4 @@
-# Ashen Edge — Design Document
+# Aletha — Design Document
 
 ## Overview
 A PICO-8 action-platformer set inside **The Hollowed Furnace** — a colossal ancient kiln that consumes the fire of the world. The player controls **Aletha**, a tempered figure born of the furnace itself, who has discovered the uncomfortable truth about her creator and returns to shut it down before it drains what's left.

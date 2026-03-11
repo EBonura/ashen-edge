@@ -134,8 +134,8 @@ def analyze(path):
 
 if __name__ == '__main__':
     paths = sys.argv[1:] or [
-        os.path.join(os.path.dirname(__file__), 'ashen_edge.p8'),
-        os.path.join(os.path.dirname(__file__), 'ashen_edge.lua'),
+        os.path.join(os.path.dirname(__file__), 'aletha.p8'),
+        os.path.join(os.path.dirname(__file__), 'aletha.lua'),
     ]
     for p in paths:
         if os.path.exists(p):

@@ -1,4 +1,4 @@
-# Ashen Edge — Data Layout
+# Aletha — Data Layout
 
 PICO-8 gives us several storage buckets with different compression
 characteristics. This document explains how the game's data is split
@@ -217,4 +217,4 @@ make edit    → python3 level_editor.py
 ```
 
 `build.py` selects encoding type and bpp automatically — no manual
-tuning required. Output is `ashen_edge.p8`.
+tuning required. Output is `aletha.p8`.

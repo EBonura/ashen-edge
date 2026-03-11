@@ -30,10 +30,10 @@ fn main() {
         let exe_dir = std::env::current_exe()
             .map(|p| p.parent().unwrap().to_path_buf())
             .unwrap_or_else(|_| PathBuf::from("."));
-        // Walk up to find project root (has ashen_edge.lua)
+        // Walk up to find project root (has aletha.lua)
         let mut dir = exe_dir;
         for _ in 0..5 {
-            if dir.join("ashen_edge.lua").exists() {
+            if dir.join("aletha.lua").exists() {
                 break;
             }
             dir = dir.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -42,7 +42,7 @@ fn main() {
     };
 
     let asset_dir = dir.join("assets").join("assassin");
-    let output_p8 = dir.join("ashen_edge.p8");
+    let output_p8 = dir.join("aletha.p8");
     let level_json = dir.join("level_data.json");
     let music_p8 = dir.join("music.p8");
     let tileset_png = dir.join("assets").join("tileset").join("fg_tileset.png");
@@ -797,7 +797,7 @@ fn main() {
     };
 
     // Read game lua template
-    let game_lua_path = dir.join("ashen_edge.lua");
+    let game_lua_path = dir.join("aletha.lua");
     let game_lua = std::fs::read_to_string(&game_lua_path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}", game_lua_path.display(), e));
 
@@ -856,7 +856,7 @@ fn main() {
             std::path::Path::new(&pico8_dat),
             &output_p8,
             &export_dir,
-            "ashen_edge",
+            "aletha",
         ) {
             Ok(()) => eprintln!("Export complete → {}/", export_dir.display()),
             Err(e) => eprintln!("Export failed: {}", e),

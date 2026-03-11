@@ -1,7 +1,7 @@
 pico-8 cartridge // http://www.pico-8.com
 version 43
 __lua__
--- ashen edge music cart
+-- aletha music cart
 -- compose using sfx 0-30 only!
 -- slots 31-63 are reserved for data
 
