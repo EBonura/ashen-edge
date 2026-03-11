@@ -547,7 +547,7 @@ pub fn export_html(
         .map_err(|e| format!("Failed to create output dir: {}", e))?;
 
     let js_path = output_dir.join(&js_filename);
-    let html_path = output_dir.join(format!("{}.html", basename));
+    let html_path = output_dir.join("index.html");
 
     std::fs::write(&js_path, &js_content)
         .map_err(|e| format!("Failed to write {}: {}", js_path.display(), e))?;
