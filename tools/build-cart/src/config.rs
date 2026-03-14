@@ -1,7 +1,5 @@
 /// Configuration constants matching build.py.
 
-use std::path::{Path, PathBuf};
-
 pub const TRANS: u8 = 14; // transparency color index (pink)
 pub const CELL_W: u32 = 91;
 pub const CELL_H: u32 = 19;
@@ -54,14 +52,9 @@ pub const TBAR_H: u32 = 8;
 
 pub const FONT_CHARS: &str = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!.,:-'?/()\u{97}\u{8e}\u{94}\u{83}\u{8b}\u{91}+";
 
-/// Virtual address space constants.
-/// With audio stored as a Lua string, the music region (0x3100-0x31FF) is
-/// available for game data, so virtual == physical (no gap to skip).
-pub const TOTAL_VIRT: usize = 0x4300; // 17152 bytes: gfx+map+gff+music+sfx
-
-pub fn vaddr_to_phys(va: usize) -> usize {
-    va
-}
+/// Total ROM capacity: gfx(8192) + map(4096) + gff(256) + music(256) + sfx(4352) = 17152 bytes.
+/// Audio is stored as a Lua string poked at runtime, so music region is available for game data.
+pub const TOTAL_VIRT: usize = 0x4300;
 
 /// Player animation definitions: (name, filename, frame_count_override).
 pub struct AnimDef {

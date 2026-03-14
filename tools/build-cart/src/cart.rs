@@ -33,8 +33,8 @@ pub fn allocate_memory(chunks: &[DataChunk]) -> MemoryLayout {
             eprintln!("  ERROR: {} ({}b) exceeds capacity!", chunk.name, sz);
             break;
         }
-        let pa_start = vaddr_to_phys(vptr);
-        let pa_end = vaddr_to_phys(vptr + sz - 1);
+        let pa_start = vptr;
+        let pa_end = vptr + sz - 1;
         let mut regions = Vec::new();
         if pa_start < 0x2000 { regions.push("gfx"); }
         if pa_start < 0x3000 && pa_end >= 0x2000 { regions.push("map"); }
@@ -70,7 +70,7 @@ pub fn allocate_memory(chunks: &[DataChunk]) -> MemoryLayout {
         if chunk.data.is_empty() { continue; }
         let va = placements[&chunk.name];
         for (i, &b) in chunk.data.iter().enumerate() {
-            let pa = vaddr_to_phys(va + i);
+            let pa = va + i;
             if pa < 0x2000 {
                 gfx_buf[pa] = b;
             } else if pa < 0x3000 {
