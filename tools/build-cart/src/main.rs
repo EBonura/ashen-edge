@@ -501,58 +501,42 @@ fn main() {
 
     let layout = cart::allocate_memory(&data_chunks);
     let total_used = layout.total_used;
-    let sfx_used = total_used.saturating_sub(VGAP);
 
-    // ── Music ──
-    let mut music_buf = vec![0u8; 256];
-    let mut sfx_buf = layout.sfx_buf.clone();
-    let mut sfx_shift = 0usize;
+    // ── Music: encode as Lua string, poked into memory at runtime ──
+    let mut audio_lua_str = String::new();
+    let mut audio_byte_count = 0usize;
 
     if music_p8.exists() {
         if let Some((music_sfx, music_pat)) = music::load_music_cart(&music_p8) {
-            let sfx_data_slots = if sfx_used > 0 { (sfx_used + 67) / 68 } else { 0 };
-            let shift = sfx_data_slots;
-            sfx_shift = shift;
-            let mut audio_slots = 0;
+            // Combine: 256 bytes music patterns + 68*64 bytes SFX = 4608 bytes total
+            let mut audio_bytes: Vec<u8> = Vec::new();
+            audio_bytes.extend_from_slice(&music_pat);
+            audio_bytes.extend_from_slice(&music_sfx);
 
-            for src_slot in 0..64 {
-                let slot_data = &music_sfx[src_slot * 68..(src_slot + 1) * 68];
-                let has_notes = slot_data[..64].iter().any(|&b| b != 0);
-                if !has_notes { continue; }
-
-                let dst_slot = src_slot + shift;
-                if dst_slot >= 64 {
-                    eprintln!("  ERROR: audio SFX {} remapped to {} (out of range)!", src_slot, dst_slot);
-                    continue;
-                }
-                sfx_buf[dst_slot * 68..(dst_slot + 1) * 68].copy_from_slice(slot_data);
-                audio_slots += 1;
+            // Trim trailing zeros
+            while audio_bytes.last() == Some(&0) {
+                audio_bytes.pop();
             }
+            audio_byte_count = audio_bytes.len();
 
-            music_buf = music_pat.clone();
-            for i in 0..64 {
-                let raw: Vec<u8> = (0..4).map(|c| music_pat[i * 4 + c]).collect();
-                if raw.iter().all(|&b| b == 0) {
-                    for ch in 0..4 {
-                        music_buf[i * 4 + ch] = 0x40;
-                    }
-                    continue;
-                }
-                for ch in 0..4 {
-                    let b = music_buf[i * 4 + ch];
-                    let idx = (b & 0x3F) as usize;
-                    let flags = b & 0xC0;
-                    let new_idx = idx + shift;
-                    if new_idx >= 64 {
-                        eprintln!("  ERROR: music pattern {} ch{} SFX {}→{} out of range!", i, ch, idx, new_idx);
-                    } else {
-                        music_buf[i * 4 + ch] = flags | (new_idx as u8 & 0x3F);
-                    }
+            // Encode as Lua string literal using \nnn escape sequences
+            let mut lua_str = String::new();
+            for &b in &audio_bytes {
+                if b == 0 {
+                    lua_str.push_str("\\0");
+                } else {
+                    lua_str.push_str(&format!("\\{:03}", b));
                 }
             }
+            audio_lua_str = lua_str;
 
+            let audio_sfx_count = music_sfx.chunks(68).filter(|s| s[..64.min(s.len())].iter().any(|&b| b != 0)).count();
+            let music_pat_count = (0..64).filter(|&i| {
+                let b = &music_pat[i*4..(i+1)*4];
+                b.iter().any(|&v| v != 0)
+            }).count();
             eprintln!("\nLoaded music from {}:", music_p8.display());
-            eprintln!("  {} audio SFX (remapped +{})", audio_slots, shift);
+            eprintln!("  {} SFX slots, {} music patterns, {}b encoded as Lua string", audio_sfx_count, music_pat_count, audio_byte_count);
         }
     }
 
@@ -560,11 +544,9 @@ fn main() {
     let mut gen_lines: Vec<String> = Vec::new();
     gen_lines.push(format!("-- {} frames, {} anims, {}b vmem", total_frames, num_anims, total_used));
 
-    if sfx_used > 0 {
-        gen_lines.push(format!(
-            "do local _p=peek peek=function(a,n) if a>=0x3100 and a<0x{:04x} then a+=0x100 end if n then return _p(a,n) else return _p(a) end end end",
-            total_used
-        ));
+    // Audio: emit string literal (poked into memory in _init after cache_anims reads ROM)
+    if !audio_lua_str.is_empty() {
+        gen_lines.push(format!("_au=\"{}\"", audio_lua_str));
     }
 
     gen_lines.push("char_base=0".into());
@@ -690,7 +672,7 @@ fn main() {
     let tbar_base_idx = box_base_idx + 1;
     gen_lines.push(format!("a_tbar={}", tbar_base_idx));
     gen_lines.push(format!("tbar_base={} tbar_cw={} tbar_ch={}", layout.placements["tbar"], TBAR_W, TBAR_H));
-    gen_lines.push(format!("sfx_confirm={}", 7 + sfx_shift));
+    gen_lines.push("sfx_confirm=7".into());
 
     // Font lookup
     let fc_escaped: String = FONT_CHARS.chars().map(|c| {
@@ -815,14 +797,18 @@ fn main() {
     );
 
     // Convert buffers to hex
+    // Game data now fills __gfx__, __map__, __gff__, and overflows into __music__ + __sfx__.
+    // Actual audio is poked from a Lua string at runtime, overwriting whatever game data
+    // landed in __music__/__sfx__ (the decoder has already read it by then).
     let gfx_hex = music::bytes_to_gfx(&layout.gfx_buf);
     let map_hex = music::bytes_to_map_hex(&layout.map_buf);
     let gff_hex = music::bytes_to_gff_hex(&layout.gff_buf);
-    let sfx_hex = music::bytes_to_sfx_hex(&sfx_buf);
+    // Merge game data from music_buf/sfx_buf into the cart's __music__ and __sfx__ sections
+    let sfx_hex = music::bytes_to_sfx_hex(&layout.sfx_buf);
 
-    let has_music = music_buf.iter().any(|&b| b != 0);
-    let music_hex_str = if has_music {
-        Some(music::music_hex(&music_buf))
+    let has_music_data = layout.music_buf.iter().any(|&b| b != 0);
+    let music_hex_str = if has_music_data {
+        Some(music::music_hex(&layout.music_buf))
     } else {
         None
     };

@@ -13,6 +13,7 @@ pub struct MemoryLayout {
     pub gfx_buf: Vec<u8>,
     pub map_buf: Vec<u8>,
     pub gff_buf: Vec<u8>,
+    pub music_buf: Vec<u8>,
     pub sfx_buf: Vec<u8>,
 }
 
@@ -38,8 +39,9 @@ pub fn allocate_memory(chunks: &[DataChunk]) -> MemoryLayout {
         if pa_start < 0x2000 { regions.push("gfx"); }
         if pa_start < 0x3000 && pa_end >= 0x2000 { regions.push("map"); }
         if pa_start < 0x3100 && pa_end >= 0x3000 { regions.push("gff"); }
+        if pa_start < 0x3200 && pa_end >= 0x3100 { regions.push("music"); }
         if pa_end >= 0x3200 { regions.push("sfx"); }
-        let straddle = if pa_start < 0x3100 && pa_end >= 0x3200 { " *SPANS GAP*" } else { "" };
+        let straddle = "";
         eprintln!("  {:12}: 0x{:04x}-0x{:04x}  {:5}b  [{}]{}",
             chunk.name, pa_start, pa_end, sz, regions.join("+"), straddle);
         placements.insert(chunk.name.clone(), vptr);
@@ -49,17 +51,19 @@ pub fn allocate_memory(chunks: &[DataChunk]) -> MemoryLayout {
     let total_used = vptr;
     let gfx_used = total_used.min(0x2000);
     let map_used = total_used.saturating_sub(0x2000).min(0x1000);
-    let gff_used = total_used.saturating_sub(0x3000).min(VGAP - 0x3000);
-    let sfx_used = total_used.saturating_sub(VGAP);
+    let gff_used = total_used.saturating_sub(0x3000).min(0x100);
+    let music_used = total_used.saturating_sub(0x3100).min(0x100);
+    let sfx_used = total_used.saturating_sub(0x3200);
     let free = TOTAL_VIRT - total_used;
     eprintln!("  -- total: {}/{} ({}%)", total_used, TOTAL_VIRT, total_used * 100 / TOTAL_VIRT);
-    eprintln!("     gfx:{}/8192 map:{}/4096 gff:{}/256 sfx:{}/4352", gfx_used, map_used, gff_used, sfx_used);
+    eprintln!("     gfx:{}/8192 map:{}/4096 gff:{}/256 music:{}/256 sfx:{}/4352", gfx_used, map_used, gff_used, music_used, sfx_used);
     eprintln!("     free: {}b", free);
 
     // Build physical buffers
     let mut gfx_buf = vec![0u8; 8192];
     let mut map_buf = vec![0u8; 4096];
     let mut gff_buf = vec![0u8; 256];
+    let mut music_buf = vec![0u8; 256];
     let mut sfx_buf = vec![0u8; 68 * 64];
 
     for chunk in chunks {
@@ -74,7 +78,7 @@ pub fn allocate_memory(chunks: &[DataChunk]) -> MemoryLayout {
             } else if pa < 0x3100 {
                 gff_buf[pa - 0x3000] = b;
             } else if pa < 0x3200 {
-                panic!("BUG: {} byte at phys 0x{:04x} in music gap!", chunk.name, pa);
+                music_buf[pa - 0x3100] = b;
             } else {
                 sfx_buf[pa - 0x3200] = b;
             }
@@ -87,6 +91,7 @@ pub fn allocate_memory(chunks: &[DataChunk]) -> MemoryLayout {
         gfx_buf,
         map_buf,
         gff_buf,
+        music_buf,
         sfx_buf,
     }
 }

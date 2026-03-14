@@ -55,13 +55,12 @@ pub const TBAR_H: u32 = 8;
 pub const FONT_CHARS: &str = " ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!.,:-'?/()\u{97}\u{8e}\u{94}\u{83}\u{8b}\u{91}+";
 
 /// Virtual address space constants.
-pub const VGAP: usize = 0x3100;
-pub const GAP_SIZE: usize = 0x100;
-pub const SFX_PHYS_END: usize = 0x4300;
-pub const TOTAL_VIRT: usize = VGAP + (SFX_PHYS_END - VGAP - GAP_SIZE); // 16896
+/// With audio stored as a Lua string, the music region (0x3100-0x31FF) is
+/// available for game data, so virtual == physical (no gap to skip).
+pub const TOTAL_VIRT: usize = 0x4300; // 17152 bytes: gfx+map+gff+music+sfx
 
 pub fn vaddr_to_phys(va: usize) -> usize {
-    if va < VGAP { va } else { va + GAP_SIZE }
+    va
 }
 
 /// Player animation definitions: (name, filename, frame_count_override).

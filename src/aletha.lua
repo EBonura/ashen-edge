@@ -466,6 +466,8 @@ end
 
 -- -- game --
 
+function _pk(s) for i=1,#s do poke(0x30ff+i,ord(s,i)) end end
+
 function reset_game()
  plr_hp,plr_inv=max_hp,0
  px,py=ckpt_x,ckpt_y
@@ -475,16 +477,16 @@ function reset_game()
  grounded,death_t=true,0
  gems,sprojs=0,{}
  ents,ent_grp={},{}
+ if _gd then _pk(_gd) end
  load_tiles()
  init_ents()
+ if _au then _pk(_au) end
 end
 
 function _init()
  palt(0,false)
  palt(trans,true)
  cache_anims()
- -- load tiles into sprite sheet (overwrites __gfx__)
- -- entity tiles in __gfx__ survive since they're after map tiles
  load_tiles()
  init_ents()
  -- set player to spawn
@@ -492,6 +494,11 @@ function _init()
  pax,pay=px-64,py-64
  ckpt_x,ckpt_y=px,py
  safe_x,safe_y=px,py
+ -- poke audio after all ROM reads are done
+ if _au then
+  _gd="" for i=1,#_au do _gd..=chr(peek(0x30ff+i)) end
+  _pk(_au)
+ end
  music(0,2000)
 end
 
