@@ -103,29 +103,36 @@ make minify    # Generate minified Lua
 make edit      # Launch the level editor
 ```
 
-The Rust build tool (`tools/build-cart/`) processes PNG sprite sheets into compressed animation data, encodes the level map, and assembles the final cart. HTML export is done natively (no PICO-8 binary needed) -it reads `pico8.dat` for the web player template.
+The Rust build tool (`tools/build-cart/`) processes PNG sprite sheets into compressed animation data, encodes the level map, and assembles the final cart into `build/`. HTML export is done natively (no PICO-8 binary needed) - it reads `pico8.dat` for the web player template.
 
 ## Project Structure
 
 ```
-aletha.lua            Main game source (Lua)
-music.p8              Music/SFX cart (composed in PICO-8 tracker)
-level_editor.py       Tiled-style level editor (Python + pygame)
-level_editor.html     Web-based level editor
-minify.py             Lua minifier (token-aware)
-count_tokens.py       PICO-8 token/char/compressed counter
-tools/build-cart/     Rust build pipeline
-  src/eg2.rs            EG-2 compressor (Exp-Golomb + differential predictors)
-  src/animation.rs      KD/PF animation encoders with combinatorial keyframe search
-  src/frame.rs          PNG frame extraction, color quantization, bbox cropping
-  src/cart.rs           Virtual memory allocator and .p8 assembly
-  src/level.rs          Map layer encoding (RLE, TiledFill, PackBits)
-  src/tileset.rs        Tile extraction and blob compression
-  src/html_export.rs    Native HTML export (pxa compression, label embedding)
-  src/music.rs          Music/SFX cart merging
-assets/               Source sprite sheets and fonts
-export/               HTML export (deployed to itch.io)
-docs/                 Design document and data layout reference
+src/
+  aletha.lua            Main game source (Lua)
+music.p8                Music/SFX cart (composed in PICO-8 tracker)
+assets/                 Source sprite sheets and fonts
+levels/
+  data.json             Level data (entities, tiles, layers)
+  editor.html           Web-based level editor
+  server.py             Local server for the editor
+tools/
+  build-cart/           Rust build pipeline
+    src/eg2.rs            EG-2 compressor (Exp-Golomb + differential predictors)
+    src/animation.rs      KD/PF animation encoders with combinatorial keyframe search
+    src/frame.rs          PNG frame extraction, color quantization, bbox cropping
+    src/cart.rs           Virtual memory allocator and .p8 assembly
+    src/level.rs          Map layer encoding (RLE, TiledFill, PackBits)
+    src/tileset.rs        Tile extraction and blob compression
+    src/html_export.rs    Native HTML export (pxa compression, label embedding)
+    src/music.rs          Music/SFX cart merging
+  scripts/
+    count_tokens.py       PICO-8 token/char/compressed counter
+    minify.py             Lua minifier (token-aware)
+  dev/                    One-off test carts and conversion tools
+build/                  Build output (gitignored)
+export/                 HTML export (deployed to itch.io)
+docs/                   Design document and data layout reference
 ```
 
 ## Deployment

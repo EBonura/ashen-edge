@@ -1,6 +1,4 @@
 __pycache__/
 *.pyc
-aletha.p8
-aletha_min.p8
-migrate_to_json.py
 .DS_Store
+build/

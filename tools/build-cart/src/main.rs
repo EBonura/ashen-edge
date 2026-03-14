@@ -33,7 +33,7 @@ fn main() {
         // Walk up to find project root (has aletha.lua)
         let mut dir = exe_dir;
         for _ in 0..5 {
-            if dir.join("aletha.lua").exists() {
+            if dir.join("src").join("aletha.lua").exists() {
                 break;
             }
             dir = dir.parent().unwrap_or(Path::new(".")).to_path_buf();
@@ -42,8 +42,8 @@ fn main() {
     };
 
     let asset_dir = dir.join("assets").join("assassin");
-    let output_p8 = dir.join("aletha.p8");
-    let level_json = dir.join("level_data.json");
+    let output_p8 = dir.join("build").join("aletha.p8");
+    let level_json = dir.join("levels").join("data.json");
     let music_p8 = dir.join("music.p8");
     let tileset_png = dir.join("assets").join("tileset").join("fg_tileset.png");
     let bg_tileset_png = dir.join("assets").join("tileset").join("bg_tileset.png");
@@ -797,7 +797,7 @@ fn main() {
     };
 
     // Read game lua template
-    let game_lua_path = dir.join("aletha.lua");
+    let game_lua_path = dir.join("src").join("aletha.lua");
     let game_lua = std::fs::read_to_string(&game_lua_path)
         .unwrap_or_else(|e| panic!("Failed to read {}: {}", game_lua_path.display(), e));
 
@@ -828,6 +828,11 @@ fn main() {
     };
 
     // Preserve label from existing cart (if any)
+    // Ensure build output directory exists
+    if let Some(parent) = output_p8.parent() {
+        std::fs::create_dir_all(parent).expect("Failed to create build dir");
+    }
+
     let label = cart::extract_label(&output_p8);
 
     cart::write_p8_cart(

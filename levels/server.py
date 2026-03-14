@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Minimal local server for the PICO-8 level editor.
-Serves level_editor.html and provides /level GET/POST endpoints
-for reading/writing level_data.json."""
+Serves editor.html and provides /level GET/POST endpoints
+for reading/writing data.json."""
 
 import os, sys, json, webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-LEVEL_JSON = os.path.join(DIR, "level_data.json")
-HTML = os.path.join(DIR, "level_editor.html")
+LEVEL_JSON = os.path.join(DIR, "data.json")
+HTML = os.path.join(DIR, "editor.html")
 PORT = 8080
 
 class Handler(SimpleHTTPRequestHandler):

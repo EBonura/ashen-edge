@@ -133,9 +133,10 @@ def analyze(path):
     return ntok
 
 if __name__ == '__main__':
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     paths = sys.argv[1:] or [
-        os.path.join(os.path.dirname(__file__), 'aletha.p8'),
-        os.path.join(os.path.dirname(__file__), 'aletha.lua'),
+        os.path.join(root, 'build', 'aletha.p8'),
+        os.path.join(root, 'src', 'aletha.lua'),
     ]
     for p in paths:
         if os.path.exists(p):

@@ -7,10 +7,10 @@ export:
 	cargo run --release --manifest-path tools/build-cart/Cargo.toml -- --export
 
 count:
-	python3 count_tokens.py
+	python3 tools/scripts/count_tokens.py
 
 minify:
-	python3 minify.py
+	python3 tools/scripts/minify.py
 
 edit:
-	python3 level_editor.py
+	python3 levels/server.py

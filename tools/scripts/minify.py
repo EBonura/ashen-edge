@@ -14,8 +14,9 @@ import re, os, sys
 from count_tokens import tokenize, count_tokens
 
 DIR = os.path.dirname(os.path.abspath(__file__))
-SRC  = os.path.join(DIR, "aletha.p8")
-DEST = os.path.join(DIR, "aletha_min.p8")
+ROOT = os.path.abspath(os.path.join(DIR, "..", ".."))
+SRC  = os.path.join(ROOT, "build", "aletha.p8")
+DEST = os.path.join(ROOT, "build", "aletha_min.p8")
 
 TOKEN_LIMIT = 8192
 
